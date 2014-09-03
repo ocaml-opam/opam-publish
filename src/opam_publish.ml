@@ -14,6 +14,7 @@
 (**************************************************************************)
 
 open OpamTypes
+open OpamMisc.OP
 
 let descr_template =
   OpamFile.Descr.of_string "Short description\n\nLong\ndescription\n"
@@ -35,11 +36,12 @@ let mkwarn () =
 let check_opam file =
   let module OF = OpamFile.OPAM in
   try
-    let _opam = OF.read file in
-    (* let warn, warnings = mkwarn () in *)
-    (* Add factored-out todo "opam-lint" here *)
-    (* warnings file *)
-    true
+    let opam = OF.read file in
+    let warn, warnings = mkwarn () in
+    List.iter warn (OF.validate opam);
+    if OF.is_explicit file then
+      warn "should not contain 'name' or 'version' fields";
+    warnings file
   with e ->
     OpamMisc.fatal e;
     OpamGlobals.error "Couldn't read %s" (OpamFilename.to_string file);
@@ -100,96 +102,6 @@ let check_url file =
     false
 
 
-(* -- Prepare command -- *)
-
-let prepare ?name ?version http_url =
-  let open OpamFilename.OP in
-  OpamFilename.with_tmp_dir (fun tmpdir ->
-      (* Fetch the archive *)
-      let url = (http_url,None) in
-      let f =
-        OpamRepository.pull_url `http
-          (OpamPackage.of_string (Filename.basename http_url)) tmpdir None
-          [url]
-      in
-      let archive = match f with
-        | Not_available s ->
-          OpamGlobals.error_and_exit "%s is not available: %s" http_url s
-        | Result (F file) -> file
-        | _ -> assert false
-      in
-      let checksum = List.hd (OpamFilename.checksum archive) in
-      let srcdir = tmpdir / "src" in
-      OpamFilename.extract archive srcdir;
-      (* Gather metadata *)
-      let meta_dir =
-        if OpamFilename.exists_dir (srcdir / "opam")
-        then srcdir / "opam"
-        else srcdir
-      in
-      let src_opam =
-        if OpamFilename.exists (meta_dir // "opam")
-        then OpamFile.OPAM.read (meta_dir // "opam")
-        else OpamGlobals.error_and_exit "No metadata found"
-      in
-      let name = match name, OpamFile.OPAM.name_opt src_opam with
-        | None, None ->
-          OpamGlobals.error_and_exit "Package name unspecified"
-        | Some n1, Some n2 when n1 <> n2 ->
-          OpamGlobals.warning
-            "Publishing as package %s, while it refers to itself as %s"
-            (OpamPackage.Name.to_string n1) (OpamPackage.Name.to_string n2);
-          n1
-        | Some n, _ | None, Some n -> n
-      in
-      let version = match version, OpamFile.OPAM.version_opt src_opam with
-        | Some v, _ | None, Some v -> v
-        | _ ->
-          OpamGlobals.error_and_exit "Package version unspecified"
-      in
-      let package = OpamPackage.create name version in
-      let src_descr =
-        if OpamFilename.exists (meta_dir // "descr")
-        then OpamFile.Descr.read (meta_dir // "descr")
-        else descr_template
-      in
-      (* TODO: add data from the repo if found, take the best of the two.
-         Use data from existing prepare_dir if specified instead of URL ?
-         Just update url file in prepare_dir if both specified ? *)
-      (* Fix and generate missing metadata *)
-      let prep_url =
-        OpamFile.URL.with_checksum (OpamFile.URL.create `http url) checksum
-      in
-      let prep_opam = OpamFile.OPAM.with_name_opt src_opam None in
-      let prep_opam = OpamFile.OPAM.with_version_opt prep_opam None in
-      (* Generate prepare dir *)
-      let prepare_dir =
-        OpamFilename.cwd () / OpamPackage.to_string package
-      in
-      if OpamFilename.exists_dir prepare_dir &&
-         not (OpamGlobals.confirm
-                "%s exists. Override contents \
-                 (otherwise, only url will be updated) ?"
-                (OpamFilename.Dir.to_string prepare_dir))
-      then () else (
-        OpamFile.OPAM.write (prepare_dir // "opam") prep_opam;
-        OpamFile.Descr.write (prepare_dir // "descr") src_descr;
-        if OpamFilename.exists_dir (meta_dir / "files") then
-          OpamFilename.copy_dir ~src:(meta_dir / "files") ~dst:prepare_dir
-      );
-      OpamFile.URL.write (prepare_dir // "url") prep_url;
-
-      OpamGlobals.msg
-        "Template metadata for %s generated in %s.\n\
-        \  * Check the 'opam' file\n\
-        \  * Fill in or check the description of your package in 'descr'\n\
-        \  * Check that there are no unneeded files under 'files/'\n\
-        \  * Run 'opam publish submit %s' to submit your package\n"
-        (OpamPackage.to_string package)
-        (OpamFilename.prettify_dir prepare_dir)
-        (OpamFilename.prettify_dir prepare_dir)
-    )
-
 (* -- Submit command -- *)
 
 let (/) a b = String.concat "/" [a;b]
@@ -200,8 +112,10 @@ let github_root = "git@github.com:"
 
 type github_repo = { label: string; owner: string; name: string; }
 
+let default_label = "default"
+
 let default_repo =
-  { label = "default"; owner = "ocaml"; name = "opam-repository"; }
+  { label = default_label; owner = "ocaml"; name = "opam-repository"; }
 
 let opam_publish_root =
   OpamFilename.OP.(
@@ -303,15 +217,16 @@ let update_mirror repo =
       git ["reset"; "origin/master"; "--hard"];
     )
 
+let repo_rel_package_dir package =
+  OpamFilename.OP.(
+    OpamFilename.Dir.of_string "packages" /
+    OpamPackage.Name.to_string (OpamPackage.name package) /
+    OpamPackage.to_string package
+  )
+
 let add_metadata repo user package user_meta_dir =
   let mirror = repo_dir repo.label in
-  let meta_dir =
-    OpamFilename.OP.(
-      OpamFilename.Dir.of_string "packages" /
-      OpamPackage.Name.to_string (OpamPackage.name package) /
-      OpamPackage.to_string package
-    )
-  in
+  let meta_dir = repo_rel_package_dir package in
   OpamFilename.in_dir mirror (fun () ->
       if OpamFilename.exists_dir meta_dir then
         git ["rm"; "-r"; OpamFilename.Dir.to_string meta_dir];
@@ -319,6 +234,17 @@ let add_metadata repo user package user_meta_dir =
       OpamFilename.copy_dir
         ~src:user_meta_dir
         ~dst:meta_dir;
+      let setmode f mode =
+        let file = OpamFilename.OP.(meta_dir // f) in
+        if OpamFilename.exists file then OpamFilename.chmod file mode;
+      in
+      setmode "opam" 0o644;
+      setmode "descr" 0o644;
+      let () =
+        let dir = OpamFilename.OP.(meta_dir / "files") in
+        if OpamFilename.exists_dir dir then
+          Unix.chmod (OpamFilename.Dir.to_string dir) 0o755
+      in
       git ["add"; OpamFilename.Dir.to_string meta_dir];
       git ["commit"; "-m";
            Printf.sprintf "[opam-publish] description for %s"
@@ -328,8 +254,20 @@ let add_metadata repo user package user_meta_dir =
   let url = "https://github.com"/repo.owner/repo.name/"pulls" in
   (* TODO: extract real pull *)
   OpamGlobals.msg "Pull-requested: %s\n" url;
-  if OpamSystem.command_exists "xdg-open" then
-    OpamSystem.command ["xdg-open";url]
+  try OpamSystem.command ["xdg-open";url]
+  with OpamSystem.Command_not_found _ -> ()
+
+let get_git_metadata_dir package repo =
+  let mirror = repo_dir repo.label in
+  let meta_dir = repo_rel_package_dir package in
+  update_mirror repo;
+  OpamFilename.in_dir mirror (fun () ->
+      try
+        git ["reset"; "--hard"; "remotes"/"user"/user_branch package; "--"];
+        if OpamFilename.exists_dir meta_dir then
+          Some OpamFilename.OP.(mirror / OpamFilename.Dir.to_string meta_dir)
+        else None
+      with OpamSystem.Process_error _ -> None)
 
 let sanity_checks meta_dir =
   let files = OpamFilename.files meta_dir in
@@ -366,7 +304,7 @@ let submit repo_label user_opt package meta_dir =
   let mirror_dir = repo_dir repo_label in
   let user, repo =
     if not (OpamFilename.exists_dir mirror_dir) then
-      if repo_label = default_repo.label then
+      if repo_label = default_label then
         let user = get_user default_repo user_opt in
         init_mirror default_repo user;
         user, default_repo
@@ -375,13 +313,150 @@ let submit repo_label user_opt package meta_dir =
           "Repository %S unknown, see `opam-publish repo'"
           repo_label
     else
-    let mirror_dir = repo_dir repo_label in
     let repo = repo_of_dir mirror_dir in
     get_user repo user_opt, repo
   in
   (* pull-request processing *)
   update_mirror repo;
   add_metadata repo user package meta_dir
+
+
+(* -- Prepare command -- *)
+
+let prepare ?name ?version ?(repo_label=default_label) http_url =
+  let open OpamFilename.OP in
+  let open OpamMisc.Option.Op in (* Option monad *)
+  OpamFilename.with_tmp_dir @@ fun tmpdir ->
+  (* Fetch the archive *)
+  let url = (http_url,None) in
+  let f =
+    OpamRepository.pull_url `http
+      (OpamPackage.of_string (Filename.basename http_url)) tmpdir None
+      [url]
+  in
+  let archive = match f with
+    | Not_available s ->
+      OpamGlobals.error_and_exit "%s is not available: %s" http_url s
+    | Result (F file) -> file
+    | _ -> assert false
+  in
+  let checksum = List.hd (OpamFilename.checksum archive) in
+  let srcdir = tmpdir / "src" in
+  OpamFilename.extract archive srcdir;
+  (* Utility functions *)
+  let f_opt f = if OpamFilename.exists f then Some f else None in
+  let dir_opt d = if OpamFilename.exists_dir d then Some d else None in
+  let get_file name reader dir =
+    dir >>= dir_opt >>= fun d ->
+    f_opt (d // name) >>= fun f ->
+    try Some (f, reader f)
+    with OpamFormat.Bad_format _ -> None
+  in
+  let get_opam = get_file "opam" OpamFile.OPAM.read in
+  let get_descr = get_file "descr" OpamFile.Descr.read in
+  let get_files_dir dir = dir >>= dir_opt >>= fun d -> dir_opt (d / "files") in
+  (* Get opam from the archive *)
+  let src_meta_dir = dir_opt (srcdir / "opam") ++ dir_opt srcdir in
+  let src_opam = get_opam src_meta_dir in
+  (* Guess package name and version *)
+  let name = match name, src_opam >>| snd >>= OpamFile.OPAM.name_opt with
+    | None, None ->
+      OpamGlobals.error_and_exit "Package name unspecified"
+    | Some n1, Some n2 when n1 <> n2 ->
+      OpamGlobals.warning
+        "Publishing as package %s, while it refers to itself as %s"
+        (OpamPackage.Name.to_string n1) (OpamPackage.Name.to_string n2);
+      n1
+    | Some n, _ | None, Some n -> n
+  in
+  let version =
+    match version ++ (src_opam >>| snd >>= OpamFile.OPAM.version_opt) with
+    | None ->
+      OpamGlobals.error_and_exit "Package version unspecified"
+    | Some v -> v
+  in
+  let package = OpamPackage.create name version in
+  (* Metadata sources: from OPAM overlay, prepare dir, git mirror, archive.
+     Could add: from highest existing version on the repo ? Better
+     advise pinning at the moment to encourage some testing. *)
+  let prepare_dir_name = OpamFilename.cwd () / OpamPackage.to_string package in
+  let prepare_dir = dir_opt prepare_dir_name in
+  let overlay_dir =
+    let switch =
+      match !OpamGlobals.switch with
+      | `Command_line s | `Env s -> Some (OpamSwitch.of_string s)
+      | `Not_set ->
+        f_opt (OpamPath.config (OpamPath.root())) >>|
+        OpamFile.Config.read >>|
+        OpamFile.Config.switch
+    in
+    switch >>| fun sw ->
+    OpamPath.Switch.Overlay.package (OpamPath.root ()) sw name
+  in
+  let pub_dir =
+    dir_opt (repo_dir repo_label) >>| repo_of_dir >>=
+    get_git_metadata_dir package
+  in
+  (* Choose metadata from the sources *)
+  let prep_url =
+    (* Todo: advise mirrors if existing in other versions ? *)
+    OpamFile.URL.with_checksum (OpamFile.URL.create `http url) checksum
+  in
+  let chosen_opam_and_files =
+    let get_opam_and_files dir =
+      get_opam dir >>| fun o -> o, get_files_dir dir
+    in
+    get_opam_and_files overlay_dir  ++
+    get_opam_and_files prepare_dir ++
+    get_opam_and_files pub_dir ++
+    get_opam_and_files src_meta_dir
+  in
+  let chosen_descr =
+    get_descr overlay_dir ++
+    get_descr prepare_dir ++
+    get_descr pub_dir ++
+    get_descr src_meta_dir
+  in
+  (* Choose and copy or write *)
+  OpamFilename.mkdir prepare_dir_name;
+  let prepare_dir = prepare_dir_name in
+  match chosen_opam_and_files with
+  | None ->
+    OpamGlobals.error_and_exit
+      "No metadata found. \
+       Try pinning the package locally (`opam pin add %s %S`) beforehand."
+      (OpamPackage.Name.to_string name) http_url
+  | Some ((opam_file, opam), files_opt) ->
+    let open OpamFile in
+    if OPAM.name opam <> name || OPAM.version opam <> version ||
+       OPAM.is_explicit opam_file
+    then
+      let opam = OPAM.with_name_opt opam None in
+      let opam = OPAM.with_version_opt opam None in
+      OPAM.write (prepare_dir // "opam") opam
+    else
+      OpamFilename.copy ~src:opam_file ~dst:(prepare_dir // "opam");
+    (files_opt >>| fun src ->
+     OpamFilename.copy_dir ~src ~dst:(prepare_dir / "files"))
+    +! ();
+    (match
+       chosen_descr >>| fun (src, _descr) ->
+       OpamFilename.copy ~src ~dst:(prepare_dir // "descr")
+     with Some () -> ()
+        | None -> OpamFile.Descr.write (prepare_dir // "descr") descr_template);
+    OpamFile.URL.write (prepare_dir // "url") prep_url;
+    (* Todo: add an option to get all the versions in prepare_dir and let
+       the user merge *)
+
+    OpamGlobals.msg
+      "Template metadata for %s generated in %s.\n\
+      \  * Check the 'opam' file\n\
+      \  * Fill in or check the description of your package in 'descr'\n\
+      \  * Check that there are no unneeded files under 'files/'\n\
+      \  * Run 'opam publish submit %s' to submit your package\n"
+      (OpamPackage.to_string package)
+      OpamFilename.(remove_prefix (cwd ()) (prepare_dir // ""))
+      OpamFilename.(remove_prefix (cwd ()) (prepare_dir // ""))
 
 
 (* -- Command-line handling -- *)
@@ -417,25 +492,34 @@ let github_user =
          ~doc:"github user name. This can only be set during initialisation \
                of a repo")
 
+let repo_name =
+  Arg.(value & opt string default_label & info ["r";"repo"]
+         ~docv:"NAME"
+         ~doc:"Local name of the repository to use (see the $(b,repo) \
+               subcommand")
+
 let prepare_cmd =
-  let doc = "Gets a local metadatada directory from a given remote archive URL, \
-             to let you edit locally before submitting." in
+  let doc = "Provided a remote archive URL, gathers metadata for an OPAM \
+             package suitable for editing and submitting to an OPAM repo. \
+             A directory $(b,PACKAGE).$(b,VERSION) is generated, or updated \
+             if it exists." in
   let url = Arg.(required & pos ~rev:true 0 (some string) None & info
                    ~doc:"Public URL hosting the package source archive"
                    ~docv:"URL" [])
   in
   let pkg_opt = Arg.(value & pos ~rev:true 1 (some package) None & info
-                       ~docv:"PKG" ~doc:"Package to release" [])
+                       ~docv:"PACKAGE"
+                       ~doc:"Package to release, with optional version" [])
   in
-  let prepare url pkg_opt =
+  let prepare url pkg_opt repo_label =
     OpamMisc.Option.Op.(
-      prepare ?name:(pkg_opt >>| fst) ?version:(pkg_opt >>= snd) url
+      prepare ?name:(pkg_opt >>| fst) ?version:(pkg_opt >>= snd) ~repo_label url
     )
   in
-  Term.(pure prepare $ url $ pkg_opt),
+  Term.(pure prepare $ url $ pkg_opt $ repo_name),
   Term.info "prepare" ~doc
 
-let repos_cmd =
+let repo_cmd =
   let doc = "Sets up aliases for repositories you want to submit to." in
   let command =
     Arg.(value &
@@ -445,7 +529,7 @@ let repos_cmd =
                  $(b,list).")
   in
   let label =
-    Arg.(value & pos 1 string default_repo.label & info []
+    Arg.(value & pos 1 string default_label & info []
            ~docv:"NAME"
            ~doc:"Local name of the repository to use") in
   let gh_address =
@@ -455,7 +539,7 @@ let repos_cmd =
            ~docv:"USER/REPO_NAME"
            ~doc:"Address of the github repo (github.com/USER/REPO_NAME)")
   in
-  let repos command label gh_address user_opt =
+  let repo command label gh_address user_opt =
     match command,gh_address with
     | `Add, Some (owner,name) ->
       if OpamFilename.exists_dir (repo_dir label) then
@@ -475,7 +559,7 @@ let repos_cmd =
           repo.owner repo.name (get_user repo None)
       );
   in
-  Term.(ret (pure repos $ command $ label $ gh_address $ github_user)),
+  Term.(ret (pure repo $ command $ label $ gh_address $ github_user)),
   Term.info "repo" ~doc
 
 let submit_cmd =
@@ -484,11 +568,6 @@ let submit_cmd =
     Arg.(required & pos ~rev:true 0 (some string) None & info []
            ~docv:"DIR"
            ~doc:"Path to the metadata from opam-publish prepare") in
-  let repo_name =
-    Arg.(value & opt string default_repo.label & info ["r";"repo"]
-           ~docv:"NAME"
-           ~doc:"Local name of the repository to use (see the $(b,repo) \
-                 subcommand") in
   let submit user dir repo_name =
     submit repo_name user
       (OpamPackage.of_string (Filename.basename dir))
@@ -497,7 +576,7 @@ let submit_cmd =
   Term.(pure submit $ github_user $ dir $ repo_name),
   Term.info "submit" ~doc
 
-let cmds = [prepare_cmd; submit_cmd; repos_cmd]
+let cmds = [prepare_cmd; submit_cmd; repo_cmd]
 
 let help_cmd =
   let usage () =
