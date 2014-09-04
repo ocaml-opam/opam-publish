@@ -217,7 +217,7 @@ let update_mirror repo =
       git ["reset"; "origin/master"; "--hard"];
     )
 
-let repo_rel_package_dir package =
+let repo_package_dir package =
   OpamFilename.OP.(
     OpamFilename.Dir.of_string "packages" /
     OpamPackage.Name.to_string (OpamPackage.name package) /
@@ -226,7 +226,7 @@ let repo_rel_package_dir package =
 
 let add_metadata repo user package user_meta_dir =
   let mirror = repo_dir repo.label in
-  let meta_dir = repo_rel_package_dir package in
+  let meta_dir = repo_package_dir package in
   OpamFilename.in_dir mirror (fun () ->
       if OpamFilename.exists_dir meta_dir then
         git ["rm"; "-r"; OpamFilename.Dir.to_string meta_dir];
@@ -257,17 +257,40 @@ let add_metadata repo user package user_meta_dir =
   try OpamSystem.command ["xdg-open";url]
   with OpamSystem.Command_not_found _ -> ()
 
-let get_git_metadata_dir package repo =
+let get_git_user_dir package repo =
   let mirror = repo_dir repo.label in
-  let meta_dir = repo_rel_package_dir package in
-  update_mirror repo;
-  OpamFilename.in_dir mirror (fun () ->
+  let meta_dir = repo_package_dir package in
+  OpamFilename.in_dir mirror @@ fun () ->
+  try
+    git ["reset"; "--hard"; "remotes"/"user"/user_branch package; "--"];
+    if OpamFilename.exists_dir meta_dir then Some meta_dir
+    else None
+  with OpamSystem.Process_error _ -> None
+
+let get_git_master_dir package repo =
+  let mirror = repo_dir repo.label in
+  let meta_dir = repo_package_dir package in
+  OpamFilename.in_dir mirror @@ fun () ->
+  try
+    git ["reset"; "--hard"; "remotes"/"origin"/"master"; "--"];
+    let parent = OpamFilename.dirname_dir meta_dir in
+    if OpamFilename.exists_dir parent then
+      let packages =
+        OpamMisc.filter_map
+          (OpamPackage.of_string_opt @*
+           OpamFilename.Base.to_string @* OpamFilename.basename_dir)
+          (OpamFilename.dirs parent)
+      in
       try
-        git ["reset"; "--hard"; "remotes"/"user"/user_branch package; "--"];
-        if OpamFilename.exists_dir meta_dir then
-          Some OpamFilename.OP.(mirror / OpamFilename.Dir.to_string meta_dir)
-        else None
-      with OpamSystem.Process_error _ -> None)
+        let max =
+          OpamPackage.max_version (OpamPackage.Set.of_list packages)
+            (OpamPackage.name package)
+        in
+        Some (repo_package_dir max)
+      with Not_found -> None
+    else None
+  with OpamSystem.Process_error _ -> None
+
 
 let sanity_checks meta_dir =
   let files = OpamFilename.files meta_dir in
@@ -353,7 +376,11 @@ let prepare ?name ?version ?(repo_label=default_label) http_url =
     with OpamFormat.Bad_format _ -> None
   in
   let get_opam = get_file "opam" OpamFile.OPAM.read in
-  let get_descr = get_file "descr" OpamFile.Descr.read in
+  let get_descr dir =
+    get_file "descr" OpamFile.Descr.read dir >>= fun (_,d as descr) ->
+    if OpamFile.Descr.synopsis d = OpamFile.Descr.synopsis descr_template
+    then None else Some descr
+  in
   let get_files_dir dir = dir >>= dir_opt >>= fun d -> dir_opt (d / "files") in
   (* Get opam from the archive *)
   let src_meta_dir = dir_opt (srcdir / "opam") ++ dir_opt srcdir in
@@ -393,10 +420,10 @@ let prepare ?name ?version ?(repo_label=default_label) http_url =
     switch >>| fun sw ->
     OpamPath.Switch.Overlay.package (OpamPath.root ()) sw name
   in
-  let pub_dir =
-    dir_opt (repo_dir repo_label) >>| repo_of_dir >>=
-    get_git_metadata_dir package
-  in
+  let repo = dir_opt (repo_dir repo_label) >>| repo_of_dir in
+  (repo >>| update_mirror) +! ();
+  let pub_dir = repo >>= get_git_user_dir package in
+  let other_versions_pub_dir = repo >>= get_git_master_dir package in
   (* Choose metadata from the sources *)
   let prep_url =
     (* Todo: advise mirrors if existing in other versions ? *)
@@ -415,7 +442,8 @@ let prepare ?name ?version ?(repo_label=default_label) http_url =
     get_descr overlay_dir ++
     get_descr prepare_dir ++
     get_descr pub_dir ++
-    get_descr src_meta_dir
+    get_descr src_meta_dir ++
+    get_descr other_versions_pub_dir
   in
   (* Choose and copy or write *)
   OpamFilename.mkdir prepare_dir_name;
@@ -428,8 +456,10 @@ let prepare ?name ?version ?(repo_label=default_label) http_url =
       (OpamPackage.Name.to_string name) http_url
   | Some ((opam_file, opam), files_opt) ->
     let open OpamFile in
-    if OPAM.name opam <> name || OPAM.version opam <> version ||
-       OPAM.is_explicit opam_file
+    if (OPAM.name_opt opam <> None || OPAM.version_opt opam <> None) &&
+       (OPAM.name_opt opam <> Some name ||
+        OPAM.version_opt opam <> Some version ||
+        OPAM.is_explicit opam_file)
     then
       let opam = OPAM.with_name_opt opam None in
       let opam = OPAM.with_version_opt opam None in
@@ -449,14 +479,13 @@ let prepare ?name ?version ?(repo_label=default_label) http_url =
        the user merge *)
 
     OpamGlobals.msg
-      "Template metadata for %s generated in %s.\n\
+      "Template metadata generated in %s/.\n\
       \  * Check the 'opam' file\n\
       \  * Fill in or check the description of your package in 'descr'\n\
       \  * Check that there are no unneeded files under 'files/'\n\
-      \  * Run 'opam publish submit %s' to submit your package\n"
+      \  * Run 'opam publish submit ./%s' to submit your package\n"
       (OpamPackage.to_string package)
-      OpamFilename.(remove_prefix (cwd ()) (prepare_dir // ""))
-      OpamFilename.(remove_prefix (cwd ()) (prepare_dir // ""))
+      (OpamPackage.to_string package)
 
 
 (* -- Command-line handling -- *)
