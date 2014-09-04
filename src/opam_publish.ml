@@ -584,7 +584,7 @@ let repo_cmd =
         OpamFilename.dirs OpamFilename.OP.(opam_publish_root/"repos")
         |> List.iter @@ fun dir ->
         let repo = repo_of_dir dir in
-        Printf.printf "%-20s  %s/%s (%s)" (OpamGlobals.colorise `bold repo.label)
+        Printf.printf "%-20s  %s/%s (%s)\n" (OpamGlobals.colorise `bold repo.label)
           repo.owner repo.name (get_user repo None)
       );
   in
