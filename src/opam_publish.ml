@@ -226,8 +226,8 @@ let repo_package_dir package =
 
 let add_metadata repo user package user_meta_dir =
   let mirror = repo_dir repo.label in
-  let meta_dir = repo_package_dir package in
   OpamFilename.in_dir mirror (fun () ->
+      let meta_dir = repo_package_dir package in
       if OpamFilename.exists_dir meta_dir then
         git ["rm"; "-r"; OpamFilename.Dir.to_string meta_dir];
       OpamFilename.mkdir (OpamFilename.dirname_dir meta_dir);
@@ -259,9 +259,9 @@ let add_metadata repo user package user_meta_dir =
 
 let get_git_user_dir package repo =
   let mirror = repo_dir repo.label in
-  let meta_dir = repo_package_dir package in
   OpamFilename.in_dir mirror @@ fun () ->
   try
+    let meta_dir = repo_package_dir package in
     git ["reset"; "--hard"; "remotes"/"user"/user_branch package; "--"];
     if OpamFilename.exists_dir meta_dir then Some meta_dir
     else None
@@ -269,9 +269,9 @@ let get_git_user_dir package repo =
 
 let get_git_master_dir package repo =
   let mirror = repo_dir repo.label in
-  let meta_dir = repo_package_dir package in
   OpamFilename.in_dir mirror @@ fun () ->
   try
+    let meta_dir = repo_package_dir package in
     git ["reset"; "--hard"; "remotes"/"origin"/"master"; "--"];
     let parent = OpamFilename.dirname_dir meta_dir in
     if OpamFilename.exists_dir parent then
