@@ -1,6 +1,6 @@
 opam-version: "1.1"
 name: "opam-publish"
-version: "0.1~beta"
+version: "0.2"
 maintainer: "Louis Gesbert <louis.gesbert@ocamlpro.com>"
 authors: "Louis Gesbert <louis.gesbert@ocamlpro.com>"
 homepage: "http://opam.ocaml.org"
@@ -11,4 +11,5 @@ depends: [
   "opam-lib"
   "ocamlfind"
   "cmdliner"
+  "github"
 ]
