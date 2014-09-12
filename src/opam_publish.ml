@@ -752,7 +752,7 @@ See '%s COMMAND --help' for details on each command.\n\
 
 let () =
   Sys.catch_break true;
-  let _ = Sys.signal Sys.sigpipe Sys.Signal_ignore in
+  let _ = Sys.signal Sys.sigpipe (Sys.Signal_handle (fun _ -> ())) in
   try match Term.eval_choice ~catch:false help_cmd cmds with
     | `Error _ -> exit 1
     | _ -> exit 0
