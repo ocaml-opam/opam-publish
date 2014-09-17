@@ -24,6 +24,12 @@ let () =
 
 let opam_root = OpamFilename.Dir.of_string OpamGlobals.default_opam_dir
 
+let allow_checks_bypass =
+  try match Sys.getenv "OPAMPUBLISHBYPASSCHECKS" with
+    | "" | "0" | "no" | "false" -> false
+    | _ -> true
+  with Not_found -> false
+
 (* -- Metadata checkup functions -- *)
 
 let mkwarn () =
@@ -445,8 +451,10 @@ let sanity_checks meta_dir =
   ok
 
 let submit repo_label user_opt package meta_dir =
-  if not (sanity_checks meta_dir) then
-    OpamGlobals.error "Please correct the above errors and retry"
+  if not (sanity_checks meta_dir ||
+          allow_checks_bypass &&
+          OpamGlobals.confirm "Submit, bypassing checks ?")
+  then OpamGlobals.error "Please correct the above errors and retry"
   else
   (* Prepare the repo *)
   let mirror_dir = repo_dir repo_label in
