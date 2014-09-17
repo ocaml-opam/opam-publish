@@ -22,6 +22,8 @@ let descr_template =
 let () =
   OpamHTTP.register ()
 
+let opam_root = OpamFilename.Dir.of_string OpamGlobals.default_opam_dir
+
 (* -- Metadata checkup functions -- *)
 
 let mkwarn () =
@@ -125,10 +127,7 @@ let default_repo =
   { label = default_label; owner = "ocaml"; name = "opam-repository"; }
 
 let opam_publish_root =
-  OpamFilename.OP.(
-    OpamFilename.Dir.of_string OpamGlobals.default_opam_dir /
-    "plugins" / "opam-publish"
-  )
+  OpamFilename.OP.( opam_root / "plugins" / "opam-publish" )
 
 let repo_dir label =
   OpamFilename.OP.(opam_publish_root / "repos" / label)
@@ -535,12 +534,12 @@ let prepare ?name ?version ?(repo_label=default_label) http_url =
       match !OpamGlobals.switch with
       | `Command_line s | `Env s -> Some (OpamSwitch.of_string s)
       | `Not_set ->
-        f_opt (OpamPath.config (OpamPath.root())) >>|
+        f_opt (OpamPath.config opam_root) >>|
         OpamFile.Config.read >>|
         OpamFile.Config.switch
     in
     switch >>| fun sw ->
-    OpamPath.Switch.Overlay.package (OpamPath.root ()) sw name
+    OpamPath.Switch.Overlay.package opam_root sw name
   in
   let repo = dir_opt (repo_dir repo_label) >>| repo_of_dir in
   (repo >>| update_mirror) +! ();
