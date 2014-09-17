@@ -183,6 +183,7 @@ module GH = struct
   open Github
 
   let api = "https://api.github.com"
+  let token_note = "opam-publish access token"
 
   let get_token user =
     let tok_file = OpamFilename.OP.(opam_publish_root // (user ^ ".token")) in
@@ -215,8 +216,14 @@ module GH = struct
     let open Github.Monad in
     let token =
       Lwt_main.run @@ Monad.run @@
-      (Token.create ~scopes:[`Repo] ~user ~pass
-         ~note:"opam-publish access token" ()
+      (Token.get_all ~user ~pass () >>= fun auths ->
+       (try
+          return @@ List.find (fun a ->
+              a.Github_t.auth_note = Some token_note)
+            auths
+        with Not_found ->
+          Token.create ~scopes:[`Repo] ~user ~pass
+            ~note:token_note ())
        >>= fun auth ->
        Token.of_auth auth |> Monad.return)
     in
