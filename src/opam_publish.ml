@@ -603,7 +603,7 @@ let prepare ?name ?version ?(repo_label=default_label) http_url =
     else
       OpamFilename.copy ~src:opam_file ~dst:(prepare_dir // "opam");
     (files_opt >>| fun src ->
-     OpamFilename.copy_dir ~src ~dst:(prepare_dir / "files"))
+     OpamFilename.copy_files ~src ~dst:(prepare_dir / "files"))
     +! ();
     (match
        chosen_descr >>| fun (src, _descr) ->
