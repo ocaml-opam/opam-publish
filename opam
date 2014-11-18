@@ -1,15 +1,16 @@
-opam-version: "1.1"
+opam-version: "1.2"
 name: "opam-publish"
 version: "0.2"
 maintainer: "Louis Gesbert <louis.gesbert@ocamlpro.com>"
 authors: "Louis Gesbert <louis.gesbert@ocamlpro.com>"
 homepage: "http://opam.ocaml.org"
+dev-repo: "https://github.com/AltGr/opam-publish.git"
 bug-reports: "https://github.com/AltGr/opam-publish/issues"
 license: "LGPL-3.0 with OCaml linking exception"
-build: make
+build: [make]
 depends: [
-  "opam-lib"
-  "ocamlfind"
-  "cmdliner"
-  "github"
+  "opam-lib" {build & >= "1.2.0"}
+  "ocamlfind" {build}
+  "cmdliner" {build}
+  "github" {build & >= "0.9.0"}
 ]
