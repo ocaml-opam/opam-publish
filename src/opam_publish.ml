@@ -504,7 +504,7 @@ let prepare ?name ?version ?(repo_label=default_label) http_url =
   in
   let archive = match f with
     | Not_available s ->
-      OpamGlobals.error_and_exit "%s is not available: %s" http_url s
+      OpamGlobals.error_and_exit "Could not download the archive at %s" http_url
     | Result (F file) -> file
     | _ -> assert false
   in
