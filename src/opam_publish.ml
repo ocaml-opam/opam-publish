@@ -383,7 +383,6 @@ let add_metadata repo user token package user_meta_dir =
   let url =
     GH.pull_request user token repo ~text:(OpamFile.Descr.full descr) package
   in
-  (* TODO: extract real pull *)
   OpamGlobals.msg "Pull-requested: %s\n" url;
   try OpamSystem.command ["xdg-open"; url]
   with OpamSystem.Command_not_found _ -> ()
@@ -661,7 +660,7 @@ let repo_name =
   Arg.(value & opt string default_label & info ["r";"repo"]
          ~docv:"NAME"
          ~doc:"Local name of the repository to use (see the $(b,repo) \
-               subcommand")
+               subcommand)")
 
 let prepare_cmd =
   let doc = "Provided a remote archive URL, gathers metadata for an OPAM \

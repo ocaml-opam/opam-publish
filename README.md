@@ -8,6 +8,14 @@ and installed through OPAM locally. Now you want to contribute to the official
 or a third-party repository to make it widely available. This is where
 `opam-publish` will come in handy.
 
+## tl;dr
+
+1. Host your package archive somewhere, eg. `http://someproject.com/someproject-1.0.tar.gz`
+2. `opam-publish prepare someproject.1.0 "http://someproject.com/someproject-1.0.tar.gz"`
+3. Edit `someproject.1.0/opam`, `someproject.1.0/descr`
+4. `opam-publish submit someproject.1.0`
+5. Follow pull-request on Github; repeat 3. and 4. if needed.
+
 ## Step 0: a hosted archive
 
 Your package source needs to be available somewhere on the web for people to
@@ -22,7 +30,7 @@ purpose.
 
 ## Step 1: `opam-publish prepare`
 
-This command gathers all required information for a full OPAM package. with
+This command gathers all required information for a full OPAM package. With
 `<url>` the url of your hosted archive, simply run:
 
 ```
@@ -31,15 +39,19 @@ opam-publish prepare <package>.<version> <url>
 
 This will generate a `<package>.<version>` directory containing the full package
 definition:
-- A `descr` file with your package description, that you need to fill. First
-  line should be a short summary, and you can detail below. This is important,
-  it is what people will see when they browse for your package.
-- An `opam` file. If your package was pinned, or you are editing an existing
-  package, this should be already filled. Make sure it's correct and has the
-  proper contact information.
+- A `descr` file with your package description. First line should be a short
+  summary, and you can detail below. This is important, it is what people will
+  see when they browse for your package.
+- An `opam` file with package details and specs.
 - A `url` file that was generated from the URL you provided.
 
-That's it, once you're satisfied with the `descr` and `opam` files, you can go
+On your first run, if the package didn't exist already, `descr` is just a
+template and `opam` may need details. Make sure to write a clear description in
+`descr`, and to provide contact information and details in the `opam` file. On
+subsequent runs, or if you're updating an existing package, everything should be
+filled in already.
+
+That's it: once you're satisfied with the `descr` and `opam` files, you can go
 on.
 
 ## Step 2: `opam-publish submit`
