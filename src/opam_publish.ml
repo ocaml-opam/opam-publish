@@ -394,7 +394,11 @@ let add_metadata repo user token package user_meta_dir =
     GH.pull_request user token repo ~text package
   in
   OpamGlobals.msg "Pull-requested: %s\n" url;
-  try OpamSystem.command ["xdg-open"; url]
+  try
+    let auto_open =
+      if OpamGlobals.os () = OpamGlobals.Darwin then "open" else "xdg-open"
+    in
+    OpamSystem.command [auto_open; url]
   with OpamSystem.Command_not_found _ -> ()
 
 let get_git_user_dir package repo =
