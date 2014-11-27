@@ -403,40 +403,39 @@ let add_metadata repo user token package user_meta_dir =
     OpamSystem.command [auto_open; url]
   with OpamSystem.Command_not_found _ -> ()
 
+let reset_to_existing_pr package repo =
+  let mirror = repo_dir repo.label in
+  OpamFilename.in_dir mirror @@ fun () ->
+  try git ["reset"; "--hard"; "remotes"/"user"/user_branch package; "--"]; true
+  with OpamSystem.Process_error _ -> false
+
 let get_git_user_dir package repo =
   let mirror = repo_dir repo.label in
   OpamFilename.in_dir mirror @@ fun () ->
-  try
-    let meta_dir = repo_package_dir package in
-    git ["reset"; "--hard"; "remotes"/"user"/user_branch package; "--"];
-    if OpamFilename.exists_dir meta_dir then Some meta_dir
-    else None
-  with OpamSystem.Process_error _ -> None
+  let meta_dir = repo_package_dir package in
+  if OpamFilename.exists_dir meta_dir then Some meta_dir
+  else None
 
-let get_git_master_dir package repo =
+let get_git_max_v_dir package repo =
   let mirror = repo_dir repo.label in
   OpamFilename.in_dir mirror @@ fun () ->
-  try
-    let meta_dir = repo_package_dir package in
-    git ["reset"; "--hard"; "remotes"/"origin"/"master"; "--"];
-    let parent = OpamFilename.dirname_dir meta_dir in
-    if OpamFilename.exists_dir parent then
-      let packages =
-        OpamMisc.filter_map
-          (OpamPackage.of_string_opt @*
-           OpamFilename.Base.to_string @* OpamFilename.basename_dir)
-          (OpamFilename.dirs parent)
+  let meta_dir = repo_package_dir package in
+  let parent = OpamFilename.dirname_dir meta_dir in
+  if OpamFilename.exists_dir parent then
+    let packages =
+      OpamMisc.filter_map
+        (OpamPackage.of_string_opt @*
+         OpamFilename.Base.to_string @* OpamFilename.basename_dir)
+        (OpamFilename.dirs parent)
+    in
+    try
+      let max =
+        OpamPackage.max_version (OpamPackage.Set.of_list packages)
+          (OpamPackage.name package)
       in
-      try
-        let max =
-          OpamPackage.max_version (OpamPackage.Set.of_list packages)
-            (OpamPackage.name package)
-        in
-        Some (repo_package_dir max)
-      with Not_found -> None
-    else None
-  with OpamSystem.Process_error _ -> None
-
+      Some (repo_package_dir max)
+    with Not_found -> None
+  else None
 
 let sanity_checks meta_dir =
   let files = OpamFilename.files meta_dir in
@@ -573,8 +572,11 @@ let prepare ?name ?version ?(repo_label=default_label) http_url =
   in
   let repo = dir_opt (repo_dir repo_label) >>| repo_of_dir in
   (repo >>| update_mirror) +! ();
+  let has_pr = (repo >>| reset_to_existing_pr package) +! false in
   let pub_dir = repo >>= get_git_user_dir package in
-  let other_versions_pub_dir = repo >>= get_git_master_dir package in
+  let other_versions_pub_dir =
+    if has_pr then None else repo >>= get_git_max_v_dir package
+  in
   (* Choose metadata from the sources *)
   let prep_url =
     (* Todo: advise mirrors if existing in other versions ? *)
