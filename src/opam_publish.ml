@@ -100,7 +100,10 @@ let check_url file =
           OpamPackage.of_string
             (Filename.basename (OpamTypesBase.string_of_address address))
         in
-        let archive = OpamRepository.pull_url kind name tmpdir None [address] in
+        let archive =
+          OpamProcess.Job.run
+            (OpamRepository.pull_url kind name tmpdir None [address])
+        in
         match archive with
         | Not_available s ->
           warn (Printf.sprintf "%s couldn't be fetched (%s)"
@@ -564,9 +567,10 @@ let prepare ?name ?version ?(repo_label=default_label) http_url =
   (* Fetch the archive *)
   let url = (http_url,None) in
   let f =
-    OpamRepository.pull_url `http
-      (OpamPackage.of_string (Filename.basename http_url)) tmpdir None
-      [url]
+    OpamProcess.Job.run
+      (OpamRepository.pull_url `http
+         (OpamPackage.of_string (Filename.basename http_url)) tmpdir None
+         [url])
   in
   let archive = match f with
     | Not_available s ->
