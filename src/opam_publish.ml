@@ -203,7 +203,10 @@ module GH = struct
          for subsequent \n\
          runs in %s.\n\
          Your active tokens can be seen and revoked at \
-         https://github.com/settings/applications\n"
+         https://github.com/settings/applications\n\
+         \n\
+         If you don't have a Github account, you can create one at \
+         https://github.com/join\n\n"
         (OpamFilename.prettify tok_file);
       let rec get_pass () =
         match OpamGlobals.read "%s password:" user with
@@ -379,7 +382,7 @@ let add_metadata repo user token package user_meta_dir =
   let text =
     Printf.sprintf
       "%s\n\
-       ---\n\
+       \n---\n\
        * Homepage: %s\n\
        * Source repo: %s\n\
        * Bug tracker: %s\n\
