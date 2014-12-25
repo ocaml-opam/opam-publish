@@ -636,7 +636,7 @@ let prepare ?name ?version ?(repo_label=default_label) http_url =
       \  * Check the 'opam' file\n\
       \  * Fill in or check the description of your package in 'descr'\n\
       \  * Check that there are no unneeded files under 'files/'\n\
-      \  * Run 'opam publish submit ./%s' to submit your package\n"
+      \  * Run 'opam-publish submit ./%s' to submit your package\n"
       (OpamPackage.to_string package)
       (OpamPackage.to_string package)
 
