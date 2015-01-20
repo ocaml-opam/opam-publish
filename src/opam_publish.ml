@@ -32,35 +32,38 @@ let allow_checks_bypass =
 
 (* -- Metadata checkup functions -- *)
 
+type check_result = Pass | Fail | Warnings
+
 let mkwarn () =
-  let warnings = ref ([]: string list) in
-  (fun s -> warnings := s::!warnings),
+  let warnings = ref ([]: ([`Error|`Warning] * string) list) in
+  (fun level s -> warnings := (level,s)::!warnings),
   (fun file -> match !warnings with
-     | [] -> true
+     | [] -> Pass
      | w ->
-       OpamGlobals.error "In %s:\n  - %s\n"
+       OpamGlobals.error "In %s:\n%s\n"
          (OpamFilename.to_string file)
-         (String.concat "\n  - " (List.rev w));
-       false)
+         (OpamFile.OPAM.warns_to_string w);
+       if List.exists (function `Error,_ -> true | _ -> false) w
+       then Fail else Warnings)
 
 let check_opam file =
   let module OF = OpamFile.OPAM in
   try
     let opam = OF.read file in
     let warn, warnings = mkwarn () in
-    List.iter warn (OF.validate opam);
+    List.iter (fun (l,s) -> warn l s) (OF.validate opam);
     if OF.is_explicit file then
-      warn "should not contain 'name' or 'version' fields";
+      warn `Warning "should not contain 'name' or 'version' fields";
     warnings file
   with
   | OpamFormat.Bad_format (_pos,_,s) ->
     OpamGlobals.error "Bad format: %s" s;
-    false
+    Fail
   | e ->
     OpamMisc.fatal e;
     OpamGlobals.error "Couldn't read %s (%s)" (OpamFilename.to_string file)
       (Printexc.to_string e);
-    false
+    Fail
 
 let check_descr file =
   let module OF = OpamFile.Descr in
@@ -69,15 +72,15 @@ let check_descr file =
     let warn, warnings = mkwarn () in
     if OF.synopsis descr = OF.synopsis descr_template ||
        OpamMisc.strip (OF.synopsis descr) = "" then
-      warn "short description unspecified";
+      warn `Error "short description unspecified";
     if OF.body descr = OF.body descr_template ||
        OpamMisc.strip (OF.body descr) = "" then
-      warn "long description unspecified";
+      warn `Warning "long description unspecified";
     warnings file
   with e ->
     OpamMisc.fatal e;
     OpamGlobals.error "Couldn't read %s" (OpamFilename.to_string file);
-    false
+    Fail
 
 let check_url file =
   let module OF = OpamFile.URL in
@@ -85,12 +88,13 @@ let check_url file =
     let url = OF.read file in
     let warn, warnings = mkwarn () in
     let checksum = OF.checksum url in
-    if checksum = None then warn "no checksum supplied";
+    if checksum = None then warn `Warning "no checksum supplied";
     let check_url address =
       let addr,kind = OpamTypesBase.parse_url address in
       if snd address <> None || kind <> `http then
-        warn (Printf.sprintf "%s is not a regular http or ftp address"
-                (OpamTypesBase.string_of_address addr))
+        warn `Error @@
+        Printf.sprintf "%s is not a regular http or ftp address"
+          (OpamTypesBase.string_of_address addr)
       else
         OpamFilename.with_tmp_dir @@ fun tmpdir ->
         let name =
@@ -103,13 +107,15 @@ let check_url file =
         in
         match archive with
         | Not_available s ->
-          warn (Printf.sprintf "%s couldn't be fetched (%s)"
-                  (OpamTypesBase.string_of_address address)
-                  s)
+          warn `Error @@
+          Printf.sprintf "%s couldn't be fetched (%s)"
+            (OpamTypesBase.string_of_address address)
+            s
         | Result (F f) ->
           if checksum <> None && Some (OpamFilename.digest f) <> checksum then
-            warn (Printf.sprintf "bad checksum for %s"
-                    (OpamTypesBase.string_of_address address))
+            warn `Error @@
+            Printf.sprintf "bad checksum for %s"
+              (OpamTypesBase.string_of_address address)
         | _ -> assert false
     in
     List.iter check_url (OF.url url :: OF.mirrors url);
@@ -117,7 +123,7 @@ let check_url file =
   with e ->
     OpamMisc.fatal e;
     OpamGlobals.error "Couldn't read %s" (OpamFilename.to_string file);
-    false
+    Fail
 
 
 (* -- Submit command -- *)
@@ -450,31 +456,45 @@ let sanity_checks meta_dir =
     files |> List.fold_left (fun warns f ->
         match OpamFilename.Base.to_string (OpamFilename.basename f) with
         | "opam" | "descr" | "url" -> warns
-        | f -> Printf.sprintf "extra file %S" f :: warns
+        | f -> (`Warning, Printf.sprintf "extra file %S" f) :: warns
       ) []
   in
   let warns =
     dirs |> List.fold_left (fun warns d ->
         match OpamFilename.Base.to_string (OpamFilename.basename_dir d) with
         | "files" -> warns
-        | d -> Printf.sprintf "extra dir %S" d :: warns
+        | d -> (`Warning, Printf.sprintf "extra dir %S" d) :: warns
       ) warns
   in
   if warns <> [] then
-    OpamGlobals.error "Bad contents in %s:\n  - %s\n"
+    OpamGlobals.error "Bad contents in %s:\n%s\n"
       (OpamFilename.Dir.to_string meta_dir)
-      (String.concat "\n  - " warns);
-  let ok = warns = [] in
-  let ok = check_opam OpamFilename.OP.(meta_dir // "opam") && ok in
-  let ok = check_url OpamFilename.OP.(meta_dir // "url") && ok in
-  let ok = check_descr OpamFilename.OP.(meta_dir // "descr") && ok in
-  ok
+      (OpamFile.OPAM.warns_to_string warns);
+  let ( * ) a b = match (a,b) with
+    | Fail, _ | _, Fail -> Fail
+    | Warnings, _ | _, Warnings -> Warnings
+    | Pass, Pass -> Pass
+  in
+  (if warns = [] then Pass
+   else if List.exists (function `Error,_ -> true | _ -> false) warns then Fail
+   else Warnings)
+  * check_opam OpamFilename.OP.(meta_dir // "opam")
+  * check_url OpamFilename.OP.(meta_dir // "url")
+  * check_descr OpamFilename.OP.(meta_dir // "descr")
 
 let submit repo_label user_opt package meta_dir =
-  if not (sanity_checks meta_dir ||
-          allow_checks_bypass &&
-          OpamGlobals.confirm "Submit, bypassing checks ?")
-  then OpamGlobals.error "Please correct the above errors and retry"
+  let check =
+    match sanity_checks meta_dir with
+    | Pass -> true
+    | Warnings ->
+      OpamGlobals.confirm "Go on submitting, ignoring the warnings ?"
+    | Fail when allow_checks_bypass ->
+      OpamGlobals.confirm "Submit, bypassing checks ?"
+    | Fail ->
+      OpamGlobals.msg "Please correct the above errors and retry\n";
+      false
+  in
+  if not check then OpamGlobals.msg "Aborting\n"
   else
   (* Prepare the repo *)
   let mirror_dir = repo_dir repo_label in
