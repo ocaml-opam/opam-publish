@@ -32,18 +32,18 @@ let allow_checks_bypass =
 
 (* -- Metadata checkup functions -- *)
 
-type lint = [`Error|`Warning] * string
+type lint = int * [`Error|`Warning] * string
 type check_result = Pass | Fail of lint list | Warnings of lint list
 
 let mkwarn () =
-  let warnings = ref ([]: ([`Error|`Warning] * string) list) in
-  (fun level s -> warnings := (level,s)::!warnings),
+  let warnings = ref ([]: (int * [`Error|`Warning] * string) list) in
+  (fun n level s -> warnings := (n,level,s)::!warnings),
   (fun file -> match !warnings with
      | [] -> Pass
      | w ->
        OpamGlobals.error "In %s:\n%s\n" (OpamFilename.to_string file)
          (OpamFile.OPAM.warns_to_string w);
-       if List.exists (function `Error,_ -> true | _ -> false) w
+       if List.exists (function _,`Error,_ -> true | _ -> false) w
        then Fail w else Warnings w)
 
 let check_opam file =
@@ -51,9 +51,9 @@ let check_opam file =
   let warn, warnings = mkwarn () in
   try
     let errs,_ = OF.validate_file file in
-    List.iter (fun (l,s) -> warn l s) errs;
+    List.iter (fun (n,l,s) -> warn n l s) errs;
     if OF.is_explicit file then
-      warn `Warning "should not contain 'name' or 'version' fields";
+      warn 99 `Warning "should not contain 'name' or 'version' fields";
     warnings file
   with
   | e ->
@@ -69,10 +69,10 @@ let check_descr file =
     let warn, warnings = mkwarn () in
     if OF.synopsis descr = OF.synopsis descr_template ||
        OpamMisc.strip (OF.synopsis descr) = "" then
-      warn `Error "short description unspecified";
+      warn 98 `Error "short description unspecified";
     if OF.body descr = OF.body descr_template ||
        OpamMisc.strip (OF.body descr) = "" then
-      warn `Warning "long description unspecified";
+      warn 97 `Warning "long description unspecified";
     warnings file
   with e ->
     OpamMisc.fatal e;
@@ -85,11 +85,11 @@ let check_url file =
     let url = OF.read file in
     let warn, warnings = mkwarn () in
     let checksum = OF.checksum url in
-    if checksum = None then warn `Warning "no checksum supplied";
+    if checksum = None then warn 96 `Warning "no checksum supplied";
     let check_url address =
       let addr,kind = OpamTypesBase.parse_url address in
       if snd address <> None || kind <> `http then
-        warn `Error @@
+        warn 95 `Error @@
         Printf.sprintf "%s is not a regular http or ftp address"
           (OpamTypesBase.string_of_address addr)
       else
@@ -104,13 +104,13 @@ let check_url file =
         in
         match archive with
         | Not_available s ->
-          warn `Error @@
+          warn 94 `Error @@
           Printf.sprintf "%s couldn't be fetched (%s)"
             (OpamTypesBase.string_of_address address)
             s
         | Result (F f) ->
           if checksum <> None && Some (OpamFilename.digest f) <> checksum then
-            warn `Error @@
+            warn 93 `Error @@
             Printf.sprintf "bad checksum for %s"
               (OpamTypesBase.string_of_address address)
         | _ -> assert false
@@ -390,8 +390,8 @@ let add_metadata repo user token package lint user_meta_dir =
     | Warnings w | Fail w ->
       Printf.sprintf "### opam-lint failures\n%s\n---\n"
         (String.concat "" (List.map (function
-             | `Warning, s -> Printf.sprintf "- **WARNING** %s\n" s
-             | `Error, s -> Printf.sprintf "- **ERROR** %s\n" s)
+             | n, `Warning, s -> Printf.sprintf "- **WARNING** %2d %s\n" n s
+             | n, `Error, s -> Printf.sprintf "- **ERROR** %2d %s\n" n s)
            w))
   in
   let text =
@@ -464,14 +464,14 @@ let sanity_checks meta_dir =
     files |> List.fold_left (fun warns f ->
         match OpamFilename.Base.to_string (OpamFilename.basename f) with
         | "opam" | "descr" | "url" -> warns
-        | f -> (`Warning, Printf.sprintf "extra file %S" f) :: warns
+        | f -> (92, `Warning, Printf.sprintf "extra file %S" f) :: warns
       ) []
   in
   let warns =
     dirs |> List.fold_left (fun warns d ->
         match OpamFilename.Base.to_string (OpamFilename.basename_dir d) with
         | "files" -> warns
-        | d -> (`Warning, Printf.sprintf "extra dir %S" d) :: warns
+        | d -> (91, `Warning, Printf.sprintf "extra dir %S" d) :: warns
       ) warns
   in
   if warns <> [] then
@@ -486,7 +486,7 @@ let sanity_checks meta_dir =
     | Pass, Pass -> Pass
   in
   (if warns = [] then Pass
-   else if List.exists (function `Error,_ -> true | _ -> false) warns
+   else if List.exists (function _,`Error,_ -> true | _ -> false) warns
    then Fail warns else Warnings warns)
   * check_opam OpamFilename.OP.(meta_dir // "opam")
   * check_url OpamFilename.OP.(meta_dir // "url")
