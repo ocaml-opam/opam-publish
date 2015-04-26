@@ -814,6 +814,9 @@ let () =
     Printf.eprintf "Fatal error: %s\n" msg;
     Printf.eprintf "%s" (OpamMisc.pretty_backtrace e);
     exit 1
+  | Github.Message m ->
+    Printf.eprintf "GitHub API error: %s\n" (Github.API.string_of_message m);
+    exit 1
   | e ->
     Printf.eprintf "Fatal error:\n%s\n" (Printexc.to_string e);
     Printf.eprintf "%s" (OpamMisc.pretty_backtrace e);
