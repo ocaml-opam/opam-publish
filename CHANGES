@@ -1,0 +1,3 @@
+0.3.0 (trunk):
+* Add two-factor authentication support
+* Now requires github >= 1.0.0

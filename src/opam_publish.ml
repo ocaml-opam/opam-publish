@@ -223,16 +223,27 @@ module GH = struct
       pass
     in
     let open Github.Monad in
+    let rec complete_2fa = function
+      | Result auths -> return auths
+      | Auth (mode, c) ->
+        match OpamGlobals.read "%s 2FA code from '%s': " user mode with
+        | Some p -> c p >>= complete_2fa
+        | None -> complete_2fa (Auth (mode, c))
+    in
     let token =
       Lwt_main.run @@ Monad.run @@
-      (Token.get_all ~user ~pass () >>= fun auths ->
+      (Token.get_all ~user ~pass ()
+       >>= complete_2fa
+       >>= fun auths ->
        (try
           return @@ List.find (fun a ->
               a.Github_t.auth_note = Some token_note)
             auths
         with Not_found ->
           Token.create ~scopes:[`Repo] ~user ~pass
-            ~note:token_note ())
+            ~note:token_note ()
+          >>= complete_2fa
+       )
        >>= fun auth ->
        Token.of_auth auth |> Monad.return)
     in
@@ -298,22 +309,20 @@ module GH = struct
     } in
     let open Github.Monad in
     let existing () =
-      Pull.for_repo ~token ~user:repo.owner ~repo:repo.name ()
-      >>= fun pulls -> Monad.return @@
-      try Some (
-          List.find Github_t.(fun p ->
-              p.pull_head.branch_user.user_login = user &&
-              p.pull_head.branch_ref = user_branch package &&
-              p.pull_state = `Open)
-            pulls
-        ) with Not_found -> None
+      let pulls = Pull.for_repo ~token ~user:repo.owner ~repo:repo.name () in
+      Stream.find Github_t.(fun p ->
+        (match p.pull_head.branch_user with
+         | None -> false | Some u -> u.user_login = user) &&
+        p.pull_head.branch_ref = user_branch package &&
+        p.pull_state = `Open
+      ) pulls
     in
     let pr =
       Lwt_main.run @@ Monad.run @@
       (existing () >>= function
         | None ->
           Pull.create ~token ~user:repo.owner ~repo:repo.name ~pull ()
-        | Some p ->
+        | Some (p,_) ->
           let num = p.Github_t.pull_number in
           OpamGlobals.msg "Updating existing pull-request #%d\n" num;
           Pull.update

@@ -1,0 +1,7 @@
+S src
+B _build/src
+
+PKG lwt
+PKG opam-lib
+PKG github
+PKG cmdliner
