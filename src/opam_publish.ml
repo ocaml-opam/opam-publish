@@ -16,6 +16,10 @@
 open OpamTypes
 open OpamMisc.OP
 
+let reset_terminal : (unit -> unit) option ref = ref None
+let cleanup () =
+  match !reset_terminal with None -> () | Some f -> f ()
+
 let descr_template =
   OpamFile.Descr.of_string "Short description\n\nLong\ndescription\n"
 
@@ -191,6 +195,19 @@ module GH = struct
   let api = "https://api.github.com"
   let token_note = "opam-publish access token"
 
+  let no_stdin_echo f =
+    let open Unix in
+    let attr = tcgetattr stdin in
+    let reset () = tcsetattr stdin TCSAFLUSH attr in
+    reset_terminal := Some reset;
+    tcsetattr stdin TCSAFLUSH
+      { attr with
+        c_echo = false; c_echoe = false; c_echok = false; c_echonl = true; };
+    let v = f () in
+    reset ();
+    reset_terminal := None;
+    v
+
   let get_token user =
     let tok_file = OpamFilename.OP.(opam_publish_root // (user ^ ".token")) in
     if OpamFilename.exists tok_file then
@@ -213,14 +230,7 @@ module GH = struct
         | Some p -> p
         | None -> get_pass ()
       in
-      let open Unix in
-      let attr = tcgetattr stdin in
-      tcsetattr stdin TCSAFLUSH
-        { attr with
-          c_echo = false; c_echoe = false; c_echok = false; c_echonl = true; };
-      let pass = get_pass () in
-      tcsetattr stdin TCSAFLUSH attr;
-      pass
+      no_stdin_echo get_pass
     in
     let open Github.Monad in
     let rec complete_2fa = function
@@ -794,6 +804,7 @@ See '%s COMMAND --help' for details on each command.\n\
   Term.info "opam-publish" ~version:(Version.version)
 
 let () =
+  at_exit cleanup;
   Sys.catch_break true;
   let _ = Sys.signal Sys.sigpipe (Sys.Signal_handle (fun _ -> ())) in
   try match Term.eval_choice ~catch:false help_cmd cmds with
