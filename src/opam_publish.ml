@@ -265,7 +265,16 @@ module GH = struct
        >>= fun auth ->
        Token.of_auth auth |> Monad.return)
     in
-    OpamFilename.write tok_file (Token.to_string token);
+    let tok_file = OpamFilename.to_string tok_file in
+    let tok_fd = Unix.(openfile tok_file [O_CREAT; O_TRUNC; O_WRONLY] 0o600) in
+    let tok_oc = Unix.out_channel_of_descr tok_fd in
+    output_string tok_oc (Token.to_string token);
+    close_out tok_oc;
+    let { Unix.st_perm } = Unix.stat tok_file in
+    let safe_perm = 0o7770 land st_perm in
+    begin if safe_perm <> st_perm
+      then Unix.chmod tok_file safe_perm
+    end;
     token
 
   let fork user token repo =
