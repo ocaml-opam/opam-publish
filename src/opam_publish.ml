@@ -208,6 +208,21 @@ module GH = struct
     reset_terminal := None;
     v
 
+  let recent_otp = ref None
+  let complete_2fa user c =
+    let rec try_again f = Github.(Monad.(f () >>= function
+    | Result auths -> return auths
+    | Two_factor _ when !recent_otp <> None ->
+      recent_otp := None;
+      try_again f
+    | Two_factor mode ->
+      let otp = OpamGlobals.read "%s 2FA code from '%s': " user mode in
+      recent_otp := otp;
+      try_again (c ?otp)
+    )) in
+    let otp = !recent_otp in
+    try_again (c ?otp)
+
   let get_token user =
     let tok_file = OpamFilename.OP.(opam_publish_root // (user ^ ".token")) in
     if OpamFilename.exists tok_file then
@@ -233,26 +248,19 @@ module GH = struct
       no_stdin_echo get_pass
     in
     let open Github.Monad in
-    let rec complete_2fa = function
-      | Result auths -> return auths
-      | Auth (mode, c) ->
-        match OpamGlobals.read "%s 2FA code from '%s': " user mode with
-        | Some p -> c p >>= complete_2fa
-        | None -> complete_2fa (Auth (mode, c))
-    in
     let token =
       Lwt_main.run @@ Monad.run @@
-      (Token.get_all ~user ~pass ()
-       >>= complete_2fa
+      (complete_2fa user (Token.get_all ~user ~pass)
        >>= fun auths ->
        (try
           return @@ List.find (fun a ->
               a.Github_t.auth_note = Some token_note)
             auths
         with Not_found ->
-          Token.create ~scopes:[`Repo] ~user ~pass
-            ~note:token_note ()
-          >>= complete_2fa
+          complete_2fa user
+            (fun ?otp () ->
+               Token.create ~scopes:[`Repo] ~user ~pass ~note:token_note ?otp ()
+            )
        )
        >>= fun auth ->
        Token.of_auth auth |> Monad.return)
