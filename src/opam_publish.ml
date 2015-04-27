@@ -215,14 +215,14 @@ module GH = struct
     else
     let pass =
       OpamGlobals.msg
-        "Please enter your Github password.\n\
+        "Please enter your GitHub password.\n\
          It will be used to generate an auth token that will be stored \
          for subsequent \n\
          runs in %s.\n\
          Your active tokens can be seen and revoked at \
          https://github.com/settings/applications\n\
          \n\
-         If you don't have a Github account, you can create one at \
+         If you don't have a GitHub account, you can create one at \
          https://github.com/join\n\n"
         (OpamFilename.prettify tok_file);
       let rec get_pass () =
@@ -290,11 +290,11 @@ module GH = struct
         Lwt.return_unit
       | false ->
         if n=0 then
-          OpamGlobals.msg "Waiting for Github to register the fork..."
+          OpamGlobals.msg "Waiting for GitHub to register the fork..."
         else if n<20 then
           OpamGlobals.msg "."
         else
-          failwith "Github fork timeout";
+          failwith "GitHub fork timeout";
         Lwt_unix.sleep 1.5 >>= until ~n:(n+1) f x
     in
     Lwt_main.run (
