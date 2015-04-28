@@ -176,13 +176,13 @@ let get_user repo user_opt =
   | Some u ->
     if OpamFilename.exists_dir dir && user_of_dir dir <> u then
       OpamGlobals.error_and_exit
-        "Repo %s already registered with github user %s"
+        "Repo %s already registered with GitHub user %s"
         repo.label u
     else u
   | None ->
     if OpamFilename.exists_dir dir then user_of_dir dir else
     let rec get_u () =
-      match OpamGlobals.read "Please enter your github name:" with
+      match OpamGlobals.read "Please enter your GitHub name:" with
       | None -> get_u ()
       | Some u -> u
     in
@@ -215,7 +215,7 @@ module GH = struct
       recent_otp := None;
       try_again f
     | Two_factor mode ->
-      let otp = OpamGlobals.read "%s 2FA code from '%s': " user mode in
+      let otp = OpamGlobals.read "%s 2FA code from '%s':" user mode in
       recent_otp := otp;
       try_again (c ?otp)
     )) in
@@ -696,7 +696,7 @@ let package =
 let github_user =
   Arg.(value & opt (some string) None & info ["n";"name"]
          ~docv:"NAME"
-         ~doc:"github user name. This can only be set during initialisation \
+         ~doc:"GitHub user name. This can only be set during initialisation \
                of a repo")
 
 let repo_name =
@@ -744,7 +744,7 @@ let repo_cmd =
          pos 2 (some (pair ~sep:'/' string string)) None &
          info []
            ~docv:"USER/REPO_NAME"
-           ~doc:"Address of the github repo (github.com/USER/REPO_NAME)")
+           ~doc:"Address of the GitHub repo (github.com/USER/REPO_NAME)")
   in
   let repo command label gh_address user_opt =
     match command,gh_address with
@@ -756,7 +756,7 @@ let repo_cmd =
       let user = get_user repo user_opt in
       let token = GH.get_token user in
       `Ok (init_mirror repo user token)
-    | `Add, _ -> `Error (true, "github address or user unspecified")
+    | `Add, _ -> `Error (true, "GitHub address or user unspecified")
     | `Remove, _ -> `Ok (OpamFilename.rmdir (repo_dir label))
     | `List, _ ->
       `Ok (
