@@ -192,7 +192,6 @@ module GH = struct
   open Lwt
   open Github
 
-  let api = "https://api.github.com"
   let token_note = "opam-publish access token"
 
   let no_stdin_echo f =
@@ -277,34 +276,20 @@ module GH = struct
     end;
     token
 
-  let fork user token repo =
-    let uri = Uri.of_string (api/"repos"/repo.owner/repo.name/"forks") in
-    let fork () =
-      API.post ~expected_code:`Accepted ~token ~uri @@ fun s ->
-      Lwt.return @@ Uri.of_string @@
-      match Yojson.Safe.from_string s with
-      | `Assoc a -> (match List.assoc "url" a with
-          | `String uri -> uri
-          | _ -> raise Not_found)
-      | _ -> raise Not_found
-    in
+  let fork token repo =
     let check uri =
-      Lwt.catch
-        (fun () ->
-           Monad.run @@
-           API.get ~expected_code:`OK ~token ~uri @@ fun _ ->
-           Lwt.return_true)
-        (function
-          | Failure msg -> (* Github.Monad only reports strings *)
-            OpamGlobals.log "PUBLISH" "Check for fork failed: %s" msg;
-            Lwt.return_false
-          | e -> raise e)
+      let not_found = API.code_handler ~expected_code:`Not_found (fun _ ->
+        OpamGlobals.log "PUBLISH" "Check for fork failed: not found";
+        return_false
+      ) in
+      API.get ~fail_handlers:[not_found] ~expected_code:`OK ~token ~uri
+        (fun _ -> return_true)
     in
-    let rec until ?(n=0) f x () =
+    let rec until ?(n=0) f x () = Monad.(
       f x >>= function
       | true ->
         if n > 0 then OpamGlobals.msg "\n";
-        Lwt.return_unit
+        return ()
       | false ->
         if n=0 then
           OpamGlobals.msg "Waiting for GitHub to register the fork..."
@@ -312,12 +297,13 @@ module GH = struct
           OpamGlobals.msg "."
         else
           failwith "GitHub fork timeout";
-        Lwt_unix.sleep 1.5 >>= until ~n:(n+1) f x
-    in
-    Lwt_main.run (
-      Monad.run (fork ()) >>= fun uri ->
-      until check uri ()
-    )
+        embed (Lwt_unix.sleep 1.5) >>= until ~n:(n+1) f x
+    ) in
+    Lwt_main.run Monad.(run (
+      Repo.fork ~token ~user:repo.owner ~repo:repo.name ()
+      >>= fun { Github_t.repository_url = uri } ->
+      until check (Uri.of_string uri) ()
+    ))
 
   let pull_request user token repo ?text package =
     (* let repo = gh_repo.owner/gh_repo.name in *)
@@ -367,7 +353,7 @@ let init_mirror repo user token =
   OpamFilename.mkdir dir;
   git ["clone"; github_root^repo.owner/repo.name^".git";
        OpamFilename.Dir.to_string dir];
-  GH.fork user token repo;
+  GH.fork token repo;
   OpamFilename.in_dir dir (fun () ->
       git ["remote"; "add"; "user"; github_root^user/repo.name]
     )
