@@ -234,7 +234,7 @@ module GH = struct
          for subsequent \n\
          runs in %s.\n\
          Your active tokens can be seen and revoked at \
-         https://github.com/settings/applications\n\
+         https://github.com/settings/tokens\n\
          \n\
          If you don't have a GitHub account, you can create one at \
          https://github.com/join\n\n"
