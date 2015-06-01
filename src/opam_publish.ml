@@ -192,7 +192,7 @@ module GH = struct
   open Lwt
   open Github
 
-  let token_note = "opam-publish access token"
+  let token_note hostname = "opam-publish access token ("^hostname^")"
 
   let no_stdin_echo f =
     let open Unix in
@@ -222,11 +222,33 @@ module GH = struct
     let otp = !recent_otp in
     try_again (c ?otp)
 
-  let get_token user =
+  let is_valid token = Lwt_main.run @@ Monad.(
+    catch (fun () -> run (
+      API.set_token token
+      >>= fun () ->
+      User.current_info ()
+      >>~ fun _ -> return true
+    )) (function
+      | Message (`Unauthorized, _) -> Lwt.return false
+      | exn -> fail exn
+    )
+  )
+
+  let rec get_token user =
     let tok_file = OpamFilename.OP.(opam_publish_root // (user ^ ".token")) in
-    if OpamFilename.exists tok_file then
-      Token.of_string (OpamFilename.read tok_file)
+    if OpamFilename.exists tok_file
+    then
+      let token = Token.of_string (OpamFilename.read tok_file) in
+      if is_valid token
+      then token
+      else begin
+        OpamGlobals.msg "Existing token is no longer valid.\n\n";
+        OpamFilename.remove tok_file;
+        get_token user
+      end
     else
+    let hostname = Unix.gethostname () in
+    let token_note = token_note hostname in
     let pass =
       OpamGlobals.msg
         "Please enter your GitHub password.\n\
@@ -247,19 +269,27 @@ module GH = struct
       no_stdin_echo get_pass
     in
     let open Github.Monad in
+    let create_token () =
+      complete_2fa user
+        (fun ?otp () ->
+           Token.create ~scopes:[`Repo] ~user ~pass ~note:token_note ?otp ()
+        )
+    in
     let token =
       Lwt_main.run @@ Monad.run @@
       (complete_2fa user (Token.get_all ~user ~pass)
        >>= fun auths ->
        (try
-          return @@ List.find (fun a ->
-              a.Github_t.auth_note = Some token_note)
+          let auth = List.find (fun a ->
+            a.Github_t.auth_note = Some token_note)
             auths
-        with Not_found ->
-          complete_2fa user
-            (fun ?otp () ->
-               Token.create ~scopes:[`Repo] ~user ~pass ~note:token_note ?otp ()
-            )
+          in
+          OpamGlobals.msg "Remote token for %s already exists. Resetting.\n\n"
+            hostname;
+          complete_2fa user (Token.delete ~user ~pass ~id:auth.Github_t.auth_id)
+          >>= fun () ->
+          create_token ()
+        with Not_found -> create_token ()
        )
        >>= fun auth ->
        Token.of_auth auth |> Monad.return)

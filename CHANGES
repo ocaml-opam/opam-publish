@@ -4,3 +4,4 @@
 * Fix a terminal corruption bug from Ctrl-C at password prompt
 * Improve GitHub API error reporting
 * Fix GitHub token file permissions security vulnerability
+* Fix GitHub token errors for revoked or unknowable (since 2015/04/20) tokens
