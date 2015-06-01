@@ -209,7 +209,7 @@ module GH = struct
 
   let recent_otp = ref None
   let complete_2fa user c =
-    let rec try_again f = Github.(Monad.(f () >>= function
+    let rec try_again f = Monad.(f () >>~ function
     | Result auths -> return auths
     | Two_factor _ when !recent_otp <> None ->
       recent_otp := None;
@@ -218,7 +218,7 @@ module GH = struct
       let otp = OpamGlobals.read "%s 2FA code from '%s':" user mode in
       recent_otp := otp;
       try_again (c ?otp)
-    )) in
+    ) in
     let otp = !recent_otp in
     try_again (c ?otp)
 
@@ -286,7 +286,7 @@ module GH = struct
         (fun _ -> return_true)
     in
     let rec until ?(n=0) f x () = Monad.(
-      f x >>= function
+      f x >>~ function
       | true ->
         if n > 0 then OpamGlobals.msg "\n";
         return ()
@@ -301,7 +301,7 @@ module GH = struct
     ) in
     Lwt_main.run Monad.(run (
       Repo.fork ~token ~user:repo.owner ~repo:repo.name ()
-      >>= fun { Github_t.repository_url = uri } ->
+      >>~ fun { Github_t.repository_url = uri } ->
       until check (Uri.of_string uri) ()
     ))
 
@@ -331,7 +331,7 @@ module GH = struct
       ) pulls
     in
     let pr =
-      Lwt_main.run @@ Monad.run @@
+      Response.value @@ Lwt_main.run @@ Monad.run @@
       (existing () >>= function
         | None ->
           Pull.create ~token ~user:repo.owner ~repo:repo.name ~pull ()
@@ -828,8 +828,10 @@ let () =
     Printf.eprintf "Fatal error: %s\n" msg;
     Printf.eprintf "%s" (OpamMisc.pretty_backtrace e);
     exit 1
-  | Github.Message m ->
-    Printf.eprintf "GitHub API error: %s\n" (Github.API.string_of_message m);
+  | Github.Message (code, m) ->
+    Printf.eprintf "GitHub API error %s: %s\n"
+      (Cohttp.Code.string_of_status code)
+      (Github.API.string_of_message m);
     exit 1
   | e ->
     Printf.eprintf "Fatal error:\n%s\n" (Printexc.to_string e);
