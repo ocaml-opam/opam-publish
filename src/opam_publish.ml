@@ -16,6 +16,10 @@
 open OpamTypes
 open OpamMisc.OP
 
+let reset_terminal : (unit -> unit) option ref = ref None
+let cleanup () =
+  match !reset_terminal with None -> () | Some f -> f ()
+
 let descr_template =
   OpamFile.Descr.of_string "Short description\n\nLong\ndescription\n"
 
@@ -172,13 +176,13 @@ let get_user repo user_opt =
   | Some u ->
     if OpamFilename.exists_dir dir && user_of_dir dir <> u then
       OpamGlobals.error_and_exit
-        "Repo %s already registered with github user %s"
+        "Repo %s already registered with GitHub user %s"
         repo.label u
     else u
   | None ->
     if OpamFilename.exists_dir dir then user_of_dir dir else
     let rec get_u () =
-      match OpamGlobals.read "Please enter your github name:" with
+      match OpamGlobals.read "Please enter your GitHub name:" with
       | None -> get_u ()
       | Some u -> u
     in
@@ -188,24 +192,73 @@ module GH = struct
   open Lwt
   open Github
 
-  let api = "https://api.github.com"
-  let token_note = "opam-publish access token"
+  let token_note hostname = "opam-publish access token ("^hostname^")"
 
-  let get_token user =
+  let no_stdin_echo f =
+    let open Unix in
+    let attr = tcgetattr stdin in
+    let reset () = tcsetattr stdin TCSAFLUSH attr in
+    reset_terminal := Some reset;
+    tcsetattr stdin TCSAFLUSH
+      { attr with
+        c_echo = false; c_echoe = false; c_echok = false; c_echonl = true; };
+    let v = f () in
+    reset ();
+    reset_terminal := None;
+    v
+
+  let recent_otp = ref None
+  let complete_2fa user c =
+    let rec try_again f = Monad.(f () >>~ function
+    | Result auths -> return auths
+    | Two_factor _ when !recent_otp <> None ->
+      recent_otp := None;
+      try_again f
+    | Two_factor mode ->
+      let otp = OpamGlobals.read "%s 2FA code from '%s':" user mode in
+      recent_otp := otp;
+      try_again (c ?otp)
+    ) in
+    let otp = !recent_otp in
+    try_again (c ?otp)
+
+  let is_valid token = Lwt_main.run @@ Monad.(
+    catch (fun () -> run (
+      API.set_token token
+      >>= fun () ->
+      User.current_info ()
+      >>~ fun _ -> return true
+    )) (function
+      | Message (`Unauthorized, _) -> Lwt.return false
+      | exn -> fail exn
+    )
+  )
+
+  let rec get_token user =
     let tok_file = OpamFilename.OP.(opam_publish_root // (user ^ ".token")) in
-    if OpamFilename.exists tok_file then
-      Token.of_string (OpamFilename.read tok_file)
+    if OpamFilename.exists tok_file
+    then
+      let token = Token.of_string (OpamFilename.read tok_file) in
+      if is_valid token
+      then token
+      else begin
+        OpamGlobals.msg "Existing token is no longer valid.\n\n";
+        OpamFilename.remove tok_file;
+        get_token user
+      end
     else
+    let hostname = Unix.gethostname () in
+    let token_note = token_note hostname in
     let pass =
       OpamGlobals.msg
-        "Please enter your Github password.\n\
+        "Please enter your GitHub password.\n\
          It will be used to generate an auth token that will be stored \
          for subsequent \n\
          runs in %s.\n\
          Your active tokens can be seen and revoked at \
-         https://github.com/settings/applications\n\
+         https://github.com/settings/tokens\n\
          \n\
-         If you don't have a Github account, you can create one at \
+         If you don't have a GitHub account, you can create one at \
          https://github.com/join\n\n"
         (OpamFilename.prettify tok_file);
       let rec get_pass () =
@@ -213,73 +266,74 @@ module GH = struct
         | Some p -> p
         | None -> get_pass ()
       in
-      let open Unix in
-      let attr = tcgetattr stdin in
-      tcsetattr stdin TCSAFLUSH
-        { attr with
-          c_echo = false; c_echoe = false; c_echok = false; c_echonl = true; };
-      let pass = get_pass () in
-      tcsetattr stdin TCSAFLUSH attr;
-      pass
+      no_stdin_echo get_pass
     in
     let open Github.Monad in
+    let create_token () =
+      complete_2fa user
+        (fun ?otp () ->
+           Token.create ~scopes:[`Repo] ~user ~pass ~note:token_note ?otp ()
+        )
+    in
     let token =
       Lwt_main.run @@ Monad.run @@
-      (Token.get_all ~user ~pass () >>= fun auths ->
+      (complete_2fa user (Token.get_all ~user ~pass)
+       >>= fun auths ->
        (try
-          return @@ List.find (fun a ->
-              a.Github_t.auth_note = Some token_note)
+          let auth = List.find (fun a ->
+            a.Github_t.auth_note = Some token_note)
             auths
-        with Not_found ->
-          Token.create ~scopes:[`Repo] ~user ~pass
-            ~note:token_note ())
+          in
+          OpamGlobals.msg "Remote token for %s already exists. Resetting.\n\n"
+            hostname;
+          complete_2fa user (Token.delete ~user ~pass ~id:auth.Github_t.auth_id)
+          >>= fun () ->
+          create_token ()
+        with Not_found -> create_token ()
+       )
        >>= fun auth ->
        Token.of_auth auth |> Monad.return)
     in
-    OpamFilename.write tok_file (Token.to_string token);
+    let tok_file = OpamFilename.to_string tok_file in
+    let tok_fd = Unix.(openfile tok_file [O_CREAT; O_TRUNC; O_WRONLY] 0o600) in
+    let tok_oc = Unix.out_channel_of_descr tok_fd in
+    output_string tok_oc (Token.to_string token);
+    close_out tok_oc;
+    let { Unix.st_perm } = Unix.stat tok_file in
+    let safe_perm = 0o7770 land st_perm in
+    begin if safe_perm <> st_perm
+      then Unix.chmod tok_file safe_perm
+    end;
     token
 
-  let fork user token repo =
-    let uri = Uri.of_string (api/"repos"/repo.owner/repo.name/"forks") in
-    let fork () =
-      API.post ~expected_code:`Accepted ~token ~uri @@ fun s ->
-      Lwt.return @@ Uri.of_string @@
-      match Yojson.Safe.from_string s with
-      | `Assoc a -> (match List.assoc "url" a with
-          | `String uri -> uri
-          | _ -> raise Not_found)
-      | _ -> raise Not_found
-    in
+  let fork token repo =
     let check uri =
-      Lwt.catch
-        (fun () ->
-           Monad.run @@
-           API.get ~expected_code:`OK ~token ~uri @@ fun _ ->
-           Lwt.return_true)
-        (function
-          | Failure msg -> (* Github.Monad only reports strings *)
-            OpamGlobals.log "PUBLISH" "Check for fork failed: %s" msg;
-            Lwt.return_false
-          | e -> raise e)
+      let not_found = API.code_handler ~expected_code:`Not_found (fun _ ->
+        OpamGlobals.log "PUBLISH" "Check for fork failed: not found";
+        return_false
+      ) in
+      API.get ~fail_handlers:[not_found] ~expected_code:`OK ~token ~uri
+        (fun _ -> return_true)
     in
-    let rec until ?(n=0) f x () =
-      f x >>= function
+    let rec until ?(n=0) f x () = Monad.(
+      f x >>~ function
       | true ->
         if n > 0 then OpamGlobals.msg "\n";
-        Lwt.return_unit
+        return ()
       | false ->
         if n=0 then
-          OpamGlobals.msg "Waiting for Github to register the fork..."
+          OpamGlobals.msg "Waiting for GitHub to register the fork..."
         else if n<20 then
           OpamGlobals.msg "."
         else
-          failwith "Github fork timeout";
-        Lwt_unix.sleep 1.5 >>= until ~n:(n+1) f x
-    in
-    Lwt_main.run (
-      Monad.run (fork ()) >>= fun uri ->
-      until check uri ()
-    )
+          failwith "GitHub fork timeout";
+        embed (Lwt_unix.sleep 1.5) >>= until ~n:(n+1) f x
+    ) in
+    Lwt_main.run Monad.(run (
+      Repo.fork ~token ~user:repo.owner ~repo:repo.name ()
+      >>~ fun { Github_t.repository_url = uri } ->
+      until check (Uri.of_string uri) ()
+    ))
 
   let pull_request user token repo ?text package =
     (* let repo = gh_repo.owner/gh_repo.name in *)
@@ -298,22 +352,20 @@ module GH = struct
     } in
     let open Github.Monad in
     let existing () =
-      Pull.for_repo ~token ~user:repo.owner ~repo:repo.name ()
-      >>= fun pulls -> Monad.return @@
-      try Some (
-          List.find Github_t.(fun p ->
-              p.pull_head.branch_user.user_login = user &&
-              p.pull_head.branch_ref = user_branch package &&
-              p.pull_state = `Open)
-            pulls
-        ) with Not_found -> None
+      let pulls = Pull.for_repo ~token ~user:repo.owner ~repo:repo.name () in
+      Stream.find Github_t.(fun p ->
+        (match p.pull_head.branch_user with
+         | None -> false | Some u -> u.user_login = user) &&
+        p.pull_head.branch_ref = user_branch package &&
+        p.pull_state = `Open
+      ) pulls
     in
     let pr =
-      Lwt_main.run @@ Monad.run @@
+      Response.value @@ Lwt_main.run @@ Monad.run @@
       (existing () >>= function
         | None ->
           Pull.create ~token ~user:repo.owner ~repo:repo.name ~pull ()
-        | Some p ->
+        | Some (p,_) ->
           let num = p.Github_t.pull_number in
           OpamGlobals.msg "Updating existing pull-request #%d\n" num;
           Pull.update
@@ -331,7 +383,7 @@ let init_mirror repo user token =
   OpamFilename.mkdir dir;
   git ["clone"; github_root^repo.owner/repo.name^".git";
        OpamFilename.Dir.to_string dir];
-  GH.fork user token repo;
+  GH.fork token repo;
   OpamFilename.in_dir dir (fun () ->
       git ["remote"; "add"; "user"; github_root^user/repo.name]
     )
@@ -674,7 +726,7 @@ let package =
 let github_user =
   Arg.(value & opt (some string) None & info ["n";"name"]
          ~docv:"NAME"
-         ~doc:"github user name. This can only be set during initialisation \
+         ~doc:"GitHub user name. This can only be set during initialisation \
                of a repo")
 
 let repo_name =
@@ -722,7 +774,7 @@ let repo_cmd =
          pos 2 (some (pair ~sep:'/' string string)) None &
          info []
            ~docv:"USER/REPO_NAME"
-           ~doc:"Address of the github repo (github.com/USER/REPO_NAME)")
+           ~doc:"Address of the GitHub repo (github.com/USER/REPO_NAME)")
   in
   let repo command label gh_address user_opt =
     match command,gh_address with
@@ -734,7 +786,7 @@ let repo_cmd =
       let user = get_user repo user_opt in
       let token = GH.get_token user in
       `Ok (init_mirror repo user token)
-    | `Add, _ -> `Error (true, "github address or user unspecified")
+    | `Add, _ -> `Error (true, "GitHub address or user unspecified")
     | `Remove, _ -> `Ok (OpamFilename.rmdir (repo_dir label))
     | `List, _ ->
       `Ok (
@@ -785,6 +837,7 @@ See '%s COMMAND --help' for details on each command.\n\
   Term.info "opam-publish" ~version:(Version.version)
 
 let () =
+  at_exit cleanup;
   Sys.catch_break true;
   let _ = Sys.signal Sys.sigpipe (Sys.Signal_handle (fun _ -> ())) in
   try match Term.eval_choice ~catch:false help_cmd cmds with
@@ -804,6 +857,11 @@ let () =
   | Failure msg as e ->
     Printf.eprintf "Fatal error: %s\n" msg;
     Printf.eprintf "%s" (OpamMisc.pretty_backtrace e);
+    exit 1
+  | Github.Message (code, m) ->
+    Printf.eprintf "GitHub API error %s: %s\n"
+      (Cohttp.Code.string_of_status code)
+      (Github.API.string_of_message m);
     exit 1
   | e ->
     Printf.eprintf "Fatal error:\n%s\n" (Printexc.to_string e);
