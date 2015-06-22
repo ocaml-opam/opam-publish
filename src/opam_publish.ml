@@ -14,24 +14,27 @@
 (**************************************************************************)
 
 open OpamTypes
-open OpamMisc.OP
+open OpamStd.Op
 
 let reset_terminal : (unit -> unit) option ref = ref None
 let cleanup () =
   match !reset_terminal with None -> () | Some f -> f ()
 
 let descr_template =
-  OpamFile.Descr.of_string "Short description\n\nLong\ndescription\n"
+  OpamFile.Descr.create "Short description\n\nLong\ndescription\n"
 
-let () =
-  OpamHTTP.register ()
+let has_dotopam =
+  OpamFormatConfig.init ();
+  let root = OpamStateConfig.opamroot () in
+  let has_dotopam = OpamStateConfig.load_defaults root in
+  OpamStd.Config.init ();
+  OpamRepositoryConfig.init ();
+  OpamStateConfig.init ();
+  has_dotopam
 
-let opam_root = OpamFilename.Dir.of_string OpamGlobals.default_opam_dir
+let opam_root = OpamStateConfig.(!r.root_dir)
 let allow_checks_bypass =
-  try match Sys.getenv "OPAMPUBLISHBYPASSCHECKS" with
-    | "" | "0" | "no" | "false" -> false
-    | _ -> true
-  with Not_found -> false
+  OpamStd.Option.Op.(OpamStd.Config.env_bool "PUBLISHBYPASSCHECKS" +! false)
 
 (* -- Metadata checkup functions -- *)
 
@@ -44,7 +47,7 @@ let mkwarn () =
   (fun file -> match !warnings with
      | [] -> Pass
      | w ->
-       OpamGlobals.error "In %s:\n%s\n" (OpamFilename.to_string file)
+       OpamConsole.error "In %s:\n%s\n" (OpamFilename.to_string file)
          (OpamFile.OPAM.warns_to_string w);
        if List.exists (function _,`Error,_ -> true | _ -> false) w
        then Fail w else Warnings w)
@@ -60,8 +63,8 @@ let check_opam file =
     warnings file
   with
   | e ->
-    OpamMisc.fatal e;
-    OpamGlobals.error "Couldn't read %s (%s)" (OpamFilename.to_string file)
+    OpamStd.Exn.fatal e;
+    OpamConsole.error "Couldn't read %s (%s)" (OpamFilename.to_string file)
       (Printexc.to_string e);
     Fail []
 
@@ -71,15 +74,15 @@ let check_descr file =
     let descr = OF.read file in
     let warn, warnings = mkwarn () in
     if OF.synopsis descr = OF.synopsis descr_template ||
-       OpamMisc.strip (OF.synopsis descr) = "" then
+       OpamStd.String.strip (OF.synopsis descr) = "" then
       warn 98 `Error "short description unspecified";
     if OF.body descr = OF.body descr_template ||
-       OpamMisc.strip (OF.body descr) = "" then
+       OpamStd.String.strip (OF.body descr) = "" then
       warn 97 `Warning "long description unspecified";
     warnings file
   with e ->
-    OpamMisc.fatal e;
-    OpamGlobals.error "Couldn't read %s" (OpamFilename.to_string file);
+    OpamStd.Exn.fatal e;
+    OpamConsole.error "Couldn't read %s" (OpamFilename.to_string file);
     Fail []
 
 let check_url file =
@@ -121,8 +124,8 @@ let check_url file =
     List.iter check_url (OF.url url :: OF.mirrors url);
     warnings file
   with e ->
-    OpamMisc.fatal e;
-    OpamGlobals.error "Couldn't read %s" (OpamFilename.to_string file);
+    OpamStd.Exn.fatal e;
+    OpamConsole.error "Couldn't read %s" (OpamFilename.to_string file);
     Fail []
 
 
@@ -142,7 +145,7 @@ let default_repo =
   { label = default_label; owner = "ocaml"; name = "opam-repository"; }
 
 let opam_publish_root =
-  OpamFilename.OP.( opam_root / "plugins" / "opam-publish" )
+  OpamFilename.Op.( opam_root / "plugins" / "opam-publish" )
 
 let create_opam_publish_root () =
   try OpamFilename.mkdir opam_publish_root with
@@ -151,7 +154,7 @@ let create_opam_publish_root () =
         (Unix.error_message c)
 
 let repo_dir label =
-  OpamFilename.OP.(opam_publish_root / "repos" / label)
+  OpamFilename.Op.(opam_publish_root / "repos" / label)
 
 let user_branch package =
   "opam-publish" /
@@ -186,14 +189,14 @@ let get_user repo user_opt =
   match user_opt with
   | Some u ->
     if OpamFilename.exists_dir dir && user_of_dir dir <> u then
-      OpamGlobals.error_and_exit
+      OpamConsole.error_and_exit
         "Repo %s already registered with GitHub user %s"
         repo.label u
     else u
   | None ->
     if OpamFilename.exists_dir dir then user_of_dir dir else
     let rec get_u () =
-      match OpamGlobals.read "Please enter your GitHub name:" with
+      match OpamConsole.read "Please enter your GitHub name:" with
       | None -> get_u ()
       | Some u -> u
     in
@@ -226,7 +229,7 @@ module GH = struct
       recent_otp := None;
       try_again f
     | Two_factor mode ->
-      let otp = OpamGlobals.read "%s 2FA code from '%s':" user mode in
+      let otp = OpamConsole.read "%s 2FA code from '%s':" user mode in
       recent_otp := otp;
       try_again (c ?otp)
     ) in
@@ -246,14 +249,14 @@ module GH = struct
   )
 
   let rec get_token user =
-    let tok_file = OpamFilename.OP.(opam_publish_root // (user ^ ".token")) in
+    let tok_file = OpamFilename.Op.(opam_publish_root // (user ^ ".token")) in
     if OpamFilename.exists tok_file
     then
       let token = Token.of_string (OpamFilename.read tok_file) in
       if is_valid token
       then token
       else begin
-        OpamGlobals.msg "Existing token is no longer valid.\n\n";
+        OpamConsole.msg "Existing token is no longer valid.\n\n";
         OpamFilename.remove tok_file;
         get_token user
       end
@@ -261,7 +264,7 @@ module GH = struct
     let hostname = Unix.gethostname () in
     let token_note = token_note hostname in
     let pass =
-      OpamGlobals.msg
+      OpamConsole.msg
         "Please enter your GitHub password.\n\
          It will be used to generate an auth token that will be stored \
          for subsequent \n\
@@ -273,7 +276,7 @@ module GH = struct
          https://github.com/join\n\n"
         (OpamFilename.prettify tok_file);
       let rec get_pass () =
-        match OpamGlobals.read "%s password:" user with
+        match OpamConsole.read "%s password:" user with
         | Some p -> p
         | None -> get_pass ()
       in
@@ -295,7 +298,7 @@ module GH = struct
             a.Github_t.auth_note = Some token_note)
             auths
           in
-          OpamGlobals.msg "Remote token for %s already exists. Resetting.\n\n"
+          OpamConsole.msg "Remote token for %s already exists. Resetting.\n\n"
             hostname;
           complete_2fa user (Token.delete ~user ~pass ~id:auth.Github_t.auth_id)
           >>= fun () ->
@@ -321,7 +324,7 @@ module GH = struct
   let fork token repo =
     let check uri =
       let not_found = API.code_handler ~expected_code:`Not_found (fun _ ->
-        OpamGlobals.log "PUBLISH" "Check for fork failed: not found";
+        OpamConsole.log "PUBLISH" "Check for fork failed: not found";
         return_false
       ) in
       API.get ~fail_handlers:[not_found] ~expected_code:`OK ~token ~uri
@@ -330,13 +333,13 @@ module GH = struct
     let rec until ?(n=0) f x () = Monad.(
       f x >>~ function
       | true ->
-        if n > 0 then OpamGlobals.msg "\n";
+        if n > 0 then OpamConsole.msg "\n";
         return ()
       | false ->
         if n=0 then
-          OpamGlobals.msg "Waiting for GitHub to register the fork..."
+          OpamConsole.msg "Waiting for GitHub to register the fork..."
         else if n<20 then
-          OpamGlobals.msg "."
+          OpamConsole.msg "."
         else
           failwith "GitHub fork timeout";
         embed (Lwt_unix.sleep 1.5) >>= until ~n:(n+1) f x
@@ -379,7 +382,7 @@ module GH = struct
           Pull.create ~token ~user:repo.owner ~repo:repo.name ~pull ()
         | Some (p,_) ->
           let num = p.Github_t.pull_number in
-          OpamGlobals.msg "Updating existing pull-request #%d\n" num;
+          OpamConsole.msg "Updating existing pull-request #%d\n" num;
           Pull.update
             ~token ~user:repo.owner ~repo:repo.name ~update_pull ~num
             ())
@@ -407,7 +410,7 @@ let update_mirror repo =
     )
 
 let repo_package_dir package =
-  OpamFilename.OP.(
+  OpamFilename.Op.(
     OpamFilename.Dir.of_string "packages" /
     OpamPackage.Name.to_string (OpamPackage.name package) /
     OpamPackage.to_string package
@@ -425,13 +428,13 @@ let add_metadata repo user token package lint user_meta_dir =
       ~src:user_meta_dir
       ~dst:meta_dir;
     let setmode f mode =
-      let file = OpamFilename.OP.(meta_dir // f) in
+      let file = OpamFilename.Op.(meta_dir // f) in
       if OpamFilename.exists file then OpamFilename.chmod file mode;
     in
     setmode "opam" 0o644;
     setmode "descr" 0o644;
     let () =
-      let dir = OpamFilename.OP.(meta_dir / "files") in
+      let dir = OpamFilename.Op.(meta_dir / "files") in
       if OpamFilename.exists_dir dir then
         Unix.chmod (OpamFilename.Dir.to_string dir) 0o755
     in
@@ -440,8 +443,8 @@ let add_metadata repo user token package lint user_meta_dir =
          Printf.sprintf "%s - via opam-publish"
            (OpamPackage.to_string package)];
     git ["push"; "user"; "+HEAD:"^user_branch package];
-    OpamFile.OPAM.read OpamFilename.OP.(meta_dir // "opam"),
-    OpamFile.Descr.read OpamFilename.OP.(meta_dir // "descr")
+    OpamFile.OPAM.read OpamFilename.Op.(meta_dir // "opam"),
+    OpamFile.Descr.read OpamFilename.Op.(meta_dir // "descr")
   in
   let lint_text = match lint with
     | Pass -> ""
@@ -464,7 +467,7 @@ let add_metadata repo user token package lint user_meta_dir =
        Pull-request generated by opam-publish v%s"
     (OpamFile.Descr.full descr)
     (String.concat " " (OpamFile.OPAM.homepage opam))
-    OpamMisc.Option.Op.((OpamFile.OPAM.dev_repo opam >>|
+    OpamStd.Option.Op.((OpamFile.OPAM.dev_repo opam >>|
                          OpamTypesBase.string_of_pin_option) +! "")
     (String.concat " " (OpamFile.OPAM.bug_reports opam))
     lint_text
@@ -473,10 +476,10 @@ let add_metadata repo user token package lint user_meta_dir =
   let url =
     GH.pull_request user token repo ~text package
   in
-  OpamGlobals.msg "Pull-requested: %s\n" url;
+  OpamConsole.msg "Pull-requested: %s\n" url;
   try
     let auto_open =
-      if OpamGlobals.os () = OpamGlobals.Darwin then "open" else "xdg-open"
+      if OpamStd.Sys.(os () = Darwin) then "open" else "xdg-open"
     in
     OpamSystem.command [auto_open; url]
   with OpamSystem.Command_not_found _ -> ()
@@ -501,7 +504,7 @@ let get_git_max_v_dir package repo =
   let parent = OpamFilename.dirname_dir meta_dir in
   if OpamFilename.exists_dir parent then
     let packages =
-      OpamMisc.filter_map
+      OpamStd.List.filter_map
         (OpamPackage.of_string_opt @*
          OpamFilename.Base.to_string @* OpamFilename.basename_dir)
         (OpamFilename.dirs parent)
@@ -533,7 +536,7 @@ let sanity_checks meta_dir =
       ) warns
   in
   if warns <> [] then
-    OpamGlobals.error "Bad contents in %s:\n%s\n"
+    OpamConsole.error "Bad contents in %s:\n%s\n"
       (OpamFilename.Dir.to_string meta_dir)
       (OpamFile.OPAM.warns_to_string warns);
   let ( * ) a b =
@@ -546,23 +549,23 @@ let sanity_checks meta_dir =
   (if warns = [] then Pass
    else if List.exists (function _,`Error,_ -> true | _ -> false) warns
    then Fail warns else Warnings warns)
-  * check_opam OpamFilename.OP.(meta_dir // "opam")
-  * check_url OpamFilename.OP.(meta_dir // "url")
-  * check_descr OpamFilename.OP.(meta_dir // "descr")
+  * check_opam OpamFilename.Op.(meta_dir // "opam")
+  * check_url OpamFilename.Op.(meta_dir // "url")
+  * check_descr OpamFilename.Op.(meta_dir // "descr")
 
 let submit repo_label user_opt package meta_dir =
   let check = sanity_checks meta_dir in
   let pass = match check with
     | Pass -> true
     | Warnings _ ->
-      OpamGlobals.confirm "Go on submitting, ignoring the warnings ?"
+      OpamConsole.confirm "Go on submitting, ignoring the warnings ?"
     | Fail _ when allow_checks_bypass ->
-      OpamGlobals.confirm "Submit, bypassing checks ?"
+      OpamConsole.confirm "Submit, bypassing checks ?"
     | Fail _ ->
-      OpamGlobals.msg "Please correct the above errors and retry\n";
+      OpamConsole.msg "Please correct the above errors and retry\n";
       false
   in
-  if not pass then OpamGlobals.msg "Aborting\n"
+  if not pass then OpamConsole.msg "Aborting\n"
   else
   (* Prepare the repo *)
   let mirror_dir = repo_dir repo_label in
@@ -574,7 +577,7 @@ let submit repo_label user_opt package meta_dir =
         init_mirror default_repo user token;
         user, default_repo, token
       else
-        OpamGlobals.error_and_exit
+        OpamConsole.error_and_exit
           "Repository %S unknown, see `opam-publish repo'"
           repo_label
     else
@@ -591,8 +594,8 @@ let submit repo_label user_opt package meta_dir =
 (* -- Prepare command -- *)
 
 let prepare ?name ?version ?(repo_label=default_label) http_url =
-  let open OpamFilename.OP in
-  let open OpamMisc.Option.Op in (* Option monad *)
+  let open OpamFilename.Op in
+  let open OpamStd.Option.Op in (* Option monad *)
   OpamFilename.with_tmp_dir @@ fun tmpdir ->
   (* Fetch the archive *)
   let url = (http_url,None) in
@@ -604,7 +607,7 @@ let prepare ?name ?version ?(repo_label=default_label) http_url =
   in
   let archive = match f with
     | Not_available s ->
-      OpamGlobals.error_and_exit "Could not download the archive at %s" http_url
+      OpamConsole.error_and_exit "Could not download the archive at %s" http_url
     | Result (F file) -> file
     | _ -> assert false
   in
@@ -633,9 +636,9 @@ let prepare ?name ?version ?(repo_label=default_label) http_url =
   (* Guess package name and version *)
   let name = match name, src_opam >>| snd >>= OpamFile.OPAM.name_opt with
     | None, None ->
-      OpamGlobals.error_and_exit "Package name unspecified"
+      OpamConsole.error_and_exit "Package name unspecified"
     | Some n1, Some n2 when n1 <> n2 ->
-      OpamGlobals.warning
+      OpamConsole.warning
         "Publishing as package %s, while it refers to itself as %s"
         (OpamPackage.Name.to_string n1) (OpamPackage.Name.to_string n2);
       n1
@@ -644,7 +647,7 @@ let prepare ?name ?version ?(repo_label=default_label) http_url =
   let version =
     match version ++ (src_opam >>| snd >>= OpamFile.OPAM.version_opt) with
     | None ->
-      OpamGlobals.error_and_exit "Package version unspecified"
+      OpamConsole.error_and_exit "Package version unspecified"
     | Some v -> v
   in
   let package = OpamPackage.create name version in
@@ -654,16 +657,11 @@ let prepare ?name ?version ?(repo_label=default_label) http_url =
   let prepare_dir_name = OpamFilename.cwd () / OpamPackage.to_string package in
   let prepare_dir = dir_opt prepare_dir_name in
   let overlay_dir =
-    let switch =
-      match !OpamGlobals.switch with
-      | `Command_line s | `Env s -> Some (OpamSwitch.of_string s)
-      | `Not_set ->
-        f_opt (OpamPath.config opam_root) >>|
-        OpamFile.Config.read >>|
-        OpamFile.Config.switch
-    in
-    switch >>| fun sw ->
-    OpamPath.Switch.Overlay.package opam_root sw name
+    if has_dotopam then
+      let switch = OpamStateConfig.(!r.current_switch) in
+      Some (OpamPath.Switch.Overlay.package opam_root switch name)
+    else
+      None
   in
   let repo = dir_opt (repo_dir repo_label) >>| repo_of_dir in
   (repo >>| update_mirror) +! ();
@@ -698,7 +696,7 @@ let prepare ?name ?version ?(repo_label=default_label) http_url =
   let prepare_dir = prepare_dir_name in
   match chosen_opam_and_files with
   | None ->
-    OpamGlobals.error_and_exit
+    OpamConsole.error_and_exit
       "No metadata found. \
        Try pinning the package locally (`opam pin add %s %S`) beforehand."
       (OpamPackage.Name.to_string name) http_url
@@ -726,7 +724,7 @@ let prepare ?name ?version ?(repo_label=default_label) http_url =
     (* Todo: add an option to get all the versions in prepare_dir and let
        the user merge *)
 
-    OpamGlobals.msg
+    OpamConsole.msg
       "Template metadata generated in %s/.\n\
       \  * Check the 'opam' file\n\
       \  * Fill in or check the description of your package in 'descr'\n\
@@ -744,14 +742,14 @@ open Cmdliner
 let package =
   let parse str =
     let name, version_opt =
-      match OpamMisc.cut_at str '.' with
+      match OpamStd.String.cut_at str '.' with
       | None -> str, None
       | Some (n,v) -> n, Some v
     in
     try
       `Ok
         (OpamPackage.Name.of_string name,
-         OpamMisc.Option.map OpamPackage.Version.of_string version_opt)
+         OpamStd.Option.map OpamPackage.Version.of_string version_opt)
     with Failure _ -> `Error (Printf.sprintf "bad package name %s" name)
   in
   let print ppf (name, version_opt) =
@@ -789,7 +787,7 @@ let prepare_cmd =
                        ~doc:"Package to release, with optional version" [])
   in
   let prepare url pkg_opt repo_label =
-    OpamMisc.Option.Op.(
+    OpamStd.Option.Op.(
       prepare ?name:(pkg_opt >>| fst) ?version:(pkg_opt >>= snd) ~repo_label url
     )
   in
@@ -830,10 +828,10 @@ let repo_cmd =
     | `Remove, _ -> `Ok (OpamFilename.rmdir (repo_dir label))
     | `List, _ ->
       `Ok (
-        OpamFilename.dirs OpamFilename.OP.(opam_publish_root/"repos")
+        OpamFilename.dirs OpamFilename.Op.(opam_publish_root/"repos")
         |> List.iter @@ fun dir ->
         let repo = repo_of_dir dir in
-        Printf.printf "%-20s  %s/%s (%s)\n" (OpamGlobals.colorise `bold repo.label)
+        Printf.printf "%-20s  %s/%s (%s)\n" (OpamConsole.colorise `bold repo.label)
           repo.owner repo.name (get_user repo None)
       );
   in
@@ -858,7 +856,7 @@ let cmds = [prepare_cmd; submit_cmd; repo_cmd]
 
 let help_cmd =
   let usage () =
-    OpamGlobals.msg "\
+    OpamConsole.msg "\
 Opam-publish v.%s
 
 Sub-commands:\n\
@@ -884,19 +882,19 @@ let () =
     | `Error _ -> exit 1
     | _ -> exit 0
   with
-  | OpamGlobals.Exit i as e ->
-    if !OpamGlobals.debug && i <> 0 then
-      Printf.eprintf "%s" (OpamMisc.pretty_backtrace e);
+  | OpamStd.Sys.Exit i as e ->
+    if OpamConsole.debug () && i <> 0 then
+      Printf.eprintf "%s" (OpamStd.Exn.pretty_backtrace e);
     exit i
   | OpamSystem.Internal_error _
   | OpamSystem.Process_error _ as e ->
     Printf.eprintf "%s\n" (Printexc.to_string e);
-    Printf.eprintf "%s" (OpamMisc.pretty_backtrace e);
+    Printf.eprintf "%s" (OpamStd.Exn.pretty_backtrace e);
   | Sys.Break ->
     exit 130
   | Failure msg as e ->
     Printf.eprintf "Fatal error: %s\n" msg;
-    Printf.eprintf "%s" (OpamMisc.pretty_backtrace e);
+    Printf.eprintf "%s" (OpamStd.Exn.pretty_backtrace e);
     exit 1
   | Github.Message (code, m) ->
     Printf.eprintf "GitHub API error %s: %s\n"
@@ -905,5 +903,5 @@ let () =
     exit 1
   | e ->
     Printf.eprintf "Fatal error:\n%s\n" (Printexc.to_string e);
-    Printf.eprintf "%s" (OpamMisc.pretty_backtrace e);
+    Printf.eprintf "%s" (OpamStd.Exn.pretty_backtrace e);
     exit 1
