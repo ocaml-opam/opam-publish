@@ -27,7 +27,6 @@ let () =
   OpamHTTP.register ()
 
 let opam_root = OpamFilename.Dir.of_string OpamGlobals.default_opam_dir
-
 let allow_checks_bypass =
   try match Sys.getenv "OPAMPUBLISHBYPASSCHECKS" with
     | "" | "0" | "no" | "false" -> false
@@ -138,6 +137,12 @@ let default_repo =
 
 let opam_publish_root =
   OpamFilename.OP.( opam_root / "plugins" / "opam-publish" )
+
+let create_opam_publish_root () =
+  try OpamFilename.mkdir opam_publish_root with
+  Unix.Unix_error (c, _, _) ->
+      OpamGlobals.warning "Error %s while creating opam publishing root"
+        (Unix.error_message c)
 
 let repo_dir label =
   OpamFilename.OP.(opam_publish_root / "repos" / label)
@@ -295,6 +300,7 @@ module GH = struct
        Token.of_auth auth |> Monad.return)
     in
     let tok_file = OpamFilename.to_string tok_file in
+    create_opam_publish_root ();
     let tok_fd = Unix.(openfile tok_file [O_CREAT; O_TRUNC; O_WRONLY] 0o600) in
     let tok_oc = Unix.out_channel_of_descr tok_fd in
     output_string tok_oc (Token.to_string token);
