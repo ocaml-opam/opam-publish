@@ -775,13 +775,30 @@ let repo_name =
          ~doc:"Local name of the repository to use (see the $(b,repo) \
                subcommand)")
 
+let latest_tag () =
+  OpamSystem.read_command_output ~verbose:false
+    ["git"; "describe"; "--tags"; "--abbrev=0"]
+  |> List.hd
+
+let guess_github_archive_url () =
+  try
+    let repo = repo_of_dir (OpamFilename.cwd ()) in
+    let tag = latest_tag () in
+    Some
+      (Printf.sprintf "https://github.com/%s/%s/archive/%s.tar.gz"
+         repo.owner repo.name tag)
+  with _ ->  None
+
 let prepare_cmd =
   let doc = "Provided a remote archive URL, gathers metadata for an OPAM \
              package suitable for editing and submitting to an OPAM repo. \
              A directory $(b,PACKAGE).$(b,VERSION) is generated, or updated \
              if it exists." in
-  let url = Arg.(required & pos ~rev:true 0 (some string) None & info
-                   ~doc:"Public URL hosting the package source archive"
+  let url = Arg.(value & pos ~rev:true 0 (some string) None & info
+                   ~doc:"Public URL hosting the package source archive \
+                         (if unspecified, it may be guessed for latest tag \
+                         of a Github-hosted repository in the current \
+                         directory)"
                    ~docv:"URL" [])
   in
   let pkg_opt = Arg.(value & pos ~rev:true 1 (some package) None & info
@@ -789,11 +806,18 @@ let prepare_cmd =
                        ~doc:"Package to release, with optional version" [])
   in
   let prepare url pkg_opt repo_label =
-    OpamMisc.Option.Op.(
-      prepare ?name:(pkg_opt >>| fst) ?version:(pkg_opt >>= snd) ~repo_label url
-    )
+    let url = match url with
+      | None -> guess_github_archive_url ()
+      | some -> some
+    in
+    match url with
+    | None -> `Error (false, "Please specify an archive url")
+    | Some url ->
+      `Ok OpamMisc.Option.Op.(
+          prepare ?name:(pkg_opt >>| fst) ?version:(pkg_opt >>= snd) ~repo_label
+            url)
   in
-  Term.(pure prepare $ url $ pkg_opt $ repo_name),
+  Term.(ret (pure prepare $ url $ pkg_opt $ repo_name)),
   Term.info "prepare" ~doc
 
 let repo_cmd =
@@ -840,18 +864,44 @@ let repo_cmd =
   Term.(ret (pure repo $ command $ label $ gh_address $ github_user)),
   Term.info "repo" ~doc
 
+let guess_prepared_dir () =
+  try
+    let repo = repo_of_dir (OpamFilename.cwd ()) in
+    let tag = latest_tag () in
+    let name =
+      try
+        OpamPackage.Name.to_string @@
+        OpamFile.OPAM.name @@ OpamFile.OPAM.read @@
+        List.find OpamFilename.exists @@
+        List.map OpamFilename.of_string ["opam";"opam/opam"]
+      with Not_found -> repo.name
+    in
+    let d = Printf.sprintf "%s.%s" name tag in
+    if Sys.file_exists d then Some d else None
+  with _ -> None
+
 let submit_cmd =
   let doc = "submits or updates a pull-request to an OPAM repo." in
   let dir =
-    Arg.(required & pos ~rev:true 0 (some string) None & info []
+    Arg.(value & pos ~rev:true 0 (some string) None & info []
            ~docv:"DIR"
            ~doc:"Path to the metadata from opam-publish prepare") in
   let submit user dir repo_name =
-    submit repo_name user
-      (OpamPackage.of_string (Filename.basename dir))
-      (OpamFilename.Dir.of_string dir)
+    let dir = match dir with
+      | None -> guess_prepared_dir ()
+      | some -> some
+    in
+    match dir with
+    | None -> `Error (false, "Please specify the output dir of \
+                              'opam-publish prepare'")
+    | Some dir ->
+      `Ok (
+        submit repo_name user
+          (OpamPackage.of_string (Filename.basename dir))
+          (OpamFilename.Dir.of_string dir)
+      )
   in
-  Term.(pure submit $ github_user $ dir $ repo_name),
+  Term.(ret (pure submit $ github_user $ dir $ repo_name)),
   Term.info "submit" ~doc
 
 let cmds = [prepare_cmd; submit_cmd; repo_cmd]
