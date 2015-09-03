@@ -1,4 +1,7 @@
-0.3.0 (trunk):
+0.3.1:
+* Guess the parameters when using github-hosted repos (use github archive from latest annotated tag)
+
+0.3.0:
 * Add two-factor authentication support
 * Now requires github >= 1.0.0, opam-lib = 1.2.2
 * Use the finer lint results from opam-lib
