@@ -1,5 +1,5 @@
 opam-version: "1.2"
-name: "opam-publish"
+name: "publish"
 version: "0.3.1"
 maintainer: "Louis Gesbert <louis.gesbert@ocamlpro.com>"
 authors: [
