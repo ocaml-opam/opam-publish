@@ -193,6 +193,11 @@ let get_user repo user_opt =
   | None ->
     if OpamFilename.exists_dir dir then user_of_dir dir else
     let rec get_u () =
+      OpamGlobals.msg
+        "A GitHub account is currently required to directly contribute to \
+         the official opam repository.\n\
+         If you don't have a GitHub account, you can create one at \
+         https://github.com/join\n\n";
       match OpamGlobals.read "Please enter your GitHub name:" with
       | None -> get_u ()
       | Some u -> u
@@ -267,10 +272,7 @@ module GH = struct
          for subsequent \n\
          runs in %s.\n\
          Your active tokens can be seen and revoked at \
-         https://github.com/settings/tokens\n\
-         \n\
-         If you don't have a GitHub account, you can create one at \
-         https://github.com/join\n\n"
+         https://github.com/settings/tokens\n\n"
         (OpamFilename.prettify tok_file);
       let rec get_pass () =
         match OpamGlobals.read "%s password:" user with
