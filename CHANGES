@@ -1,3 +1,6 @@
+0.3.2:
+* Add --msg argument to the 'submit' command
+
 0.3.1:
 * Guess the parameters when using github-hosted repos (use github archive from latest annotated tag)
 
