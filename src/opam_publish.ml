@@ -363,6 +363,7 @@ module GH = struct
       update_pull_title = Some pull.Github_t.new_pull_title;
       update_pull_body = pull.Github_t.new_pull_body;
       update_pull_state = None;
+      update_pull_base = None;
     } in
     let open Github.Monad in
     let existing () =
