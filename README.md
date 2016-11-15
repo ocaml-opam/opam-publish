@@ -10,6 +10,18 @@ or a third-party repository to make it widely available. This is where
 
 ## tl;dr
 
+### If your project is on Github
+
+From your package source tree:
+
+1. Tag your repository (`git tag -a`), and push to Github (`git push origin <tag>`)
+2. `opam-publish prepare`
+3. Check and fix files in the shown sub-directory
+4. `opam-publish submit`
+5. Follow pull-request on Github; repeat 3. and 4. if needed.
+
+### Otherwise
+
 1. Host your package archive somewhere, eg. `http://someproject.com/someproject-1.0.tar.gz`
 2. `opam-publish prepare someproject.1.0 "http://someproject.com/someproject-1.0.tar.gz"`
 3. Edit `someproject.1.0/opam`, `someproject.1.0/descr`
