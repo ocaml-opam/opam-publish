@@ -239,14 +239,12 @@ module GH = struct
     try_again (c ?otp)
 
   let is_valid token = Lwt_main.run @@ Monad.(
-    catch (fun () -> run (
-      API.set_token token
-      >>= fun () ->
-      User.current_info ()
+    Lwt.catch (fun () -> run (
+      User.current_info ~token ()
       >>~ fun _ -> return true
     )) (function
       | Message (`Unauthorized, _) -> Lwt.return false
-      | exn -> fail exn
+      | exn -> Lwt.fail exn
     )
   )
 
