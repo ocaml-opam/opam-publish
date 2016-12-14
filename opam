@@ -6,10 +6,10 @@ authors: [
   "Louis Gesbert <louis.gesbert@ocamlpro.com>"
   "David Sheets <sheets@alum.mit.edu>"
 ]
-homepage: "http://opam.ocaml.org"
-bug-reports: "https://github.com/OCamlPro/opam-publish/issues"
+homepage: "https://opam.ocaml.org"
+bug-reports: "https://github.com/ocaml/opam-publish/issues"
 license: "LGPL-3.0 with OCaml linking exception"
-dev-repo: "https://github.com/OCamlPro/opam-publish.git"
+dev-repo: "https://github.com/ocaml/opam-publish.git"
 build: [make]
 depends: [
   "opam-core" {build & >= "2.0"}
