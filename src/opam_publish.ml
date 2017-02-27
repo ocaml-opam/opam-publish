@@ -347,11 +347,14 @@ module GH = struct
       until check (Uri.of_string uri) ()
     ))
 
-  let pull_request user token repo ?text package =
+  let pull_request title user token repo ?text package =
     (* let repo = gh_repo.owner/gh_repo.name in *)
+    let title = match title with
+      | None | Some "" -> OpamPackage.to_string package ^ " — via opam-publish"
+      | Some t -> t in
     let pull = {
       Github_t.
-      new_pull_title = OpamPackage.to_string package ^ " - via opam-publish";
+      new_pull_title = title;
       new_pull_base = "master";
       new_pull_head = user^":"^user_branch package;
       new_pull_body = text;
@@ -414,7 +417,7 @@ let repo_package_dir package =
     OpamPackage.to_string package
   )
 
-let add_metadata ?msg repo user token package lint user_meta_dir =
+let add_metadata ?msg repo user token package title lint user_meta_dir =
   let mirror = repo_dir repo.label in
   let opam,descr =
     OpamFilename.in_dir mirror @@ fun () ->
@@ -479,7 +482,7 @@ let add_metadata ?msg repo user token package lint user_meta_dir =
     Version.version
   in
   let url =
-    GH.pull_request user token repo ~text package
+    GH.pull_request title user token repo ~text package
   in
   OpamGlobals.msg "Pull-requested: %s\n" url;
   try
@@ -558,7 +561,7 @@ let sanity_checks meta_dir =
   * check_url OpamFilename.OP.(meta_dir // "url")
   * check_descr OpamFilename.OP.(meta_dir // "descr")
 
-let submit ?msg repo_label user_opt package meta_dir =
+let submit ?msg repo_label user_opt package title meta_dir =
   let check = sanity_checks meta_dir in
   let pass = match check with
     | Pass -> true
@@ -593,7 +596,7 @@ let submit ?msg repo_label user_opt package meta_dir =
   in
   (* pull-request processing *)
   update_mirror repo;
-  add_metadata ?msg repo user token package check meta_dir
+  add_metadata ?msg repo user token package title check meta_dir
 
 
 (* -- Prepare command -- *)
@@ -895,6 +898,11 @@ let submit_cmd =
            ~docv:"DIR"
            ~doc:"Path to the metadata from opam-publish prepare")
   in
+  let title =
+    Arg.(value & opt (some string) None & info ["t"; "title"]
+           ~docv:"TXT"
+           ~doc:"Title of the pull request")
+  in
   let msg =
     Arg.(value & opt (some string) None & info ["msg"]
            ~docv:"FILE"
@@ -913,6 +921,7 @@ let submit_cmd =
       `Ok (
         submit ?msg repo_name user
           (OpamPackage.of_string (Filename.basename dir))
+          title
           (OpamFilename.Dir.of_string dir)
       )
   in
