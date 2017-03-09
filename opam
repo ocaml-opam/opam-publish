@@ -12,7 +12,10 @@ license: "LGPL-3.0 with OCaml linking exception"
 dev-repo: "https://github.com/OCamlPro/opam-publish.git"
 build: [make]
 depends: [
-  "opam-lib" {build & > "1.2.2"}
+  "opam-core" {build & >= "2.0"}
+  "opam-format" {build & >= "2.0"}
+  "opam-repository" {build & >= "2.0"}
+  "opam-state" {build & >= "2.0"}
   "ocamlfind" {build}
   "cmdliner" {build}
   "github" {build & >= "2.0.0"}
