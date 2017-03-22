@@ -642,84 +642,85 @@ let prepare ?name ?version ?(repo_label=default_label) http_url =
     try Some (f, reader (OpamFile.make f))
     with OpamPp.Bad_format _ -> None
   in
-  let get_opam = get_file "opam" OpamFile.OPAM.read in
-  let get_descr dir =
-    get_file "descr" OpamFile.Descr.read dir >>= fun (_,d as descr) ->
-    if OpamFile.Descr.synopsis d = OpamFile.Descr.synopsis descr_template
-    then None else Some descr
-  in
-  let get_files_dir dir = dir >>= dir_opt >>= fun d -> dir_opt (d / "files") in
-  (* Get opam from the archive *)
   let src_meta_dir = dir_opt (srcdir / "opam") ++ dir_opt srcdir in
-  let src_opam = get_opam src_meta_dir in
-  (* Guess package name and version *)
-  let name = match name, src_opam >>| snd >>= OpamFile.OPAM.name_opt with
-    | None, None ->
-      OpamConsole.error_and_exit "Package name unspecified"
-    | Some n1, Some n2 when n1 <> n2 ->
-      OpamConsole.warning
-        "Publishing as package %s, while it refers to itself as %s"
-        (OpamPackage.Name.to_string n1) (OpamPackage.Name.to_string n2);
-      n1
-    | Some n, _ | None, Some n -> n
-  in
-  let version =
-    match version ++ (src_opam >>| snd >>= OpamFile.OPAM.version_opt) with
-    | None ->
-      OpamConsole.error_and_exit "Package version unspecified"
-    | Some v -> v
-  in
-  let package = OpamPackage.create name version in
-  (* Metadata sources: from OPAM overlay, prepare dir, git mirror, archive.
-     Could add: from highest existing version on the repo ? Better
-     advise pinning at the moment to encourage some testing. *)
-  let prepare_dir_name = OpamFilename.cwd () / OpamPackage.to_string package in
-  let prepare_dir = dir_opt prepare_dir_name in
-  let overlay_dir =
-    if has_dotopam <> None then
-      OpamStateConfig.(!r.current_switch) >>| fun switch ->
-      OpamPath.Switch.Overlay.package opam_root switch name
-    else
-      None
-  in
-  let repo = dir_opt (repo_dir repo_label) >>| repo_of_dir in
-  (repo >>| update_mirror) +! ();
-  let has_pr = (repo >>| reset_to_existing_pr package) +! false in
-  let pub_dir = repo >>= get_git_user_dir package in
-  let other_versions_pub_dir =
-    if has_pr then None else repo >>= get_git_max_v_dir package
-  in
-  (* Choose metadata from the sources *)
-  let prep_url =
-    (* Todo: advise mirrors if existing in other versions ? *)
-    OpamFile.URL.with_checksum [checksum] (OpamFile.URL.create url)
-  in
-  let chosen_opam_and_files =
-    let get_opam_and_files dir =
-      get_opam dir >>| fun o -> o, get_files_dir dir
+  let prepare_one opam_file name version =
+    let get_opam = get_file opam_file OpamFile.OPAM.read in
+    let get_descr dir =
+      get_file "descr" OpamFile.Descr.read dir >>= fun (_,d as descr) ->
+      if OpamFile.Descr.synopsis d = OpamFile.Descr.synopsis descr_template
+      then None else Some descr
     in
-    get_opam_and_files overlay_dir  ++
-    get_opam_and_files prepare_dir ++
-    get_opam_and_files pub_dir ++
-    get_opam_and_files src_meta_dir
-  in
-  let chosen_descr =
-    get_descr overlay_dir ++
-    get_descr prepare_dir ++
-    get_descr pub_dir ++
-    get_descr src_meta_dir ++
-    get_descr other_versions_pub_dir
-  in
-  (* Choose and copy or write *)
-  OpamFilename.mkdir prepare_dir_name;
-  let prepare_dir = prepare_dir_name in
-  match chosen_opam_and_files with
-  | None ->
-    OpamConsole.error_and_exit
-      "No metadata found. \
-       Try pinning the package locally (`opam pin add %s %S`) beforehand."
-      (OpamPackage.Name.to_string name) http_url
-  | Some ((opam_file, opam), files_opt) ->
+    let get_files_dir dir = dir >>= dir_opt >>= fun d -> dir_opt (d / "files") in
+    (* Get opam from the archive *)
+    let src_opam = get_opam src_meta_dir in
+    (* Guess package name and version *)
+    let name = match name, src_opam >>| snd >>= OpamFile.OPAM.name_opt with
+      | None, None ->
+        OpamConsole.error_and_exit "Package name unspecified"
+      | Some n1, Some n2 when n1 <> n2 ->
+        OpamConsole.warning
+          "Publishing as package %s, while it refers to itself as %s"
+          (OpamPackage.Name.to_string n1) (OpamPackage.Name.to_string n2);
+        n1
+      | Some n, _ | None, Some n -> n
+    in
+    let version =
+      match version ++ (src_opam >>| snd >>= OpamFile.OPAM.version_opt) with
+      | None ->
+        OpamConsole.error_and_exit "Package version unspecified"
+      | Some v -> v
+    in
+    let package = OpamPackage.create name version in
+    (* Metadata sources: from OPAM overlay, prepare dir, git mirror, archive.
+       Could add: from highest existing version on the repo ? Better
+       advise pinning at the moment to encourage some testing. *)
+    let prepare_dir_name = OpamFilename.cwd () / OpamPackage.to_string package in
+    let prepare_dir = dir_opt prepare_dir_name in
+    let overlay_dir =
+      if has_dotopam <> None then
+        OpamStateConfig.(!r.current_switch) >>| fun switch ->
+        OpamPath.Switch.Overlay.package opam_root switch name
+      else
+        None
+    in
+    let repo = dir_opt (repo_dir repo_label) >>| repo_of_dir in
+    (repo >>| update_mirror) +! ();
+    let has_pr = (repo >>| reset_to_existing_pr package) +! false in
+    let pub_dir = repo >>= get_git_user_dir package in
+    let other_versions_pub_dir =
+      if has_pr then None else repo >>= get_git_max_v_dir package
+    in
+    (* Choose metadata from the sources *)
+    let prep_url =
+      (* Todo: advise mirrors if existing in other versions ? *)
+      OpamFile.URL.with_checksum [checksum] (OpamFile.URL.create url)
+    in
+    let chosen_opam_and_files =
+      let get_opam_and_files dir =
+        get_opam dir >>| fun o -> o, get_files_dir dir
+      in
+      get_opam_and_files overlay_dir  ++
+      get_opam_and_files prepare_dir ++
+      get_opam_and_files pub_dir ++
+      get_opam_and_files src_meta_dir
+    in
+    let chosen_descr =
+      get_descr overlay_dir ++
+      get_descr prepare_dir ++
+      get_descr pub_dir ++
+      get_descr src_meta_dir ++
+      get_descr other_versions_pub_dir
+    in
+    (* Choose and copy or write *)
+    OpamFilename.mkdir prepare_dir_name;
+    let prepare_dir = prepare_dir_name in
+    match chosen_opam_and_files with
+    | None ->
+      OpamConsole.error_and_exit
+        "No metadata found. \
+         Try pinning the package locally (`opam pin add %s %S`) beforehand."
+        (OpamPackage.Name.to_string name) http_url
+    | Some ((opam_file, opam), files_opt) ->
     let open OpamFile in
     let opam =
       opam |>
@@ -754,7 +755,48 @@ let prepare ?name ?version ?(repo_label=default_label) http_url =
       \  * Run 'opam publish submit ./%s' to submit your package\n"
       (OpamPackage.to_string package)
       (OpamPackage.to_string package)
-
+  in
+  if (src_meta_dir >>| fun d -> OpamFilename.exists (d // "opam")) +! false then
+    (* If there is an "opam" file, ignore "<pkg>.opam" files *)
+    prepare_one "opam" name version
+  else
+    let pkgs =
+      OpamStd.List.filter_map
+        (fun file ->
+           if OpamFilename.check_suffix file ".opam" then
+             let basename =
+               OpamFilename.basename file
+               |> OpamFilename.Base.to_string
+             in
+             let pkg =
+               OpamFilename.chop_extension file
+               |> OpamFilename.basename
+               |> OpamFilename.Base.to_string
+               |> OpamPackage.Name.of_string
+             in
+             Some (pkg, basename)
+           else
+             None)
+        ((src_meta_dir >>| OpamFilename.files) +! [])
+    in
+    match name with
+    | None ->
+      List.iter
+        (fun (name, opam_fname) -> prepare_one opam_fname (Some name) version)
+        pkgs
+    | Some name ->
+      match List.assoc name pkgs with
+      | opam_fname -> prepare_one opam_fname (Some name) version
+      | exception Not_found ->
+        match pkgs with
+        | [] ->
+          (* Same as old behavior *)
+          prepare_one "opam" (Some name) version
+        | _ ->
+          OpamConsole.error_and_exit
+            "There are <pkg>.opam files but no %s.opam. \
+             I can't decide which opam file to use."
+            (OpamPackage.Name.to_string name)
 
 (* -- Command-line handling -- *)
 
