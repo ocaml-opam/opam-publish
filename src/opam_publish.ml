@@ -604,9 +604,71 @@ let submit ?msg repo_label user_opt package title meta_dir =
 
 (* -- Prepare command -- *)
 
+module Pkg = struct
+  type filename_form =
+    | Opam
+    | Pkg_dot_opam of OpamPackage.Name.t
+
+  type t =
+    { fname_form : filename_form
+    ; opam_file  : OpamFilename.t     option
+    ; descr_file : OpamFilename.t     option
+    ; files_dir  : OpamFilename.Dir.t option
+    }
+
+  let interpret_basename base =
+    match OpamFilename.Base.to_string base with
+    | "opam" -> Some Opam
+    | base when OpamStd.String.ends_with base ~suffix:".opam" ->
+      Some (Pkg_dot_opam
+              (OpamStd.String.remove_suffix base ~suffix:".opam"
+               |> OpamPackage.Name.of_string))
+    | _ -> None
+
+  let scan_dir dir =
+    let open OpamFilename.Op in
+    let open OpamStd.Option.Op in (* Option monad *)
+    let opt_file f = if OpamFilename.exists f then Some f else None in
+    let opt_dir d = if OpamFilename.exists_dir d then Some d else None in
+    let opam_and_pkg_dot_opam_files =
+      OpamStd.List.filter_map
+        (fun file ->
+           interpret_basename (OpamFilename.basename file)
+           >>| fun fname_form ->
+           match fname_form with
+           | Opam ->
+             { fname_form
+             ; opam_file  = Some file
+             ; descr_file = opt_file (dir // "descr")
+             ; files_dir  = opt_dir  (dir /  "files")
+             }
+           | Pkg_dot_opam _ ->
+             { fname_form
+             ; opam_file  = Some file
+             ; descr_file = None
+             ; files_dir  = None
+             })
+        (OpamFilename.files dir)
+    in
+    let opam_and_pkg_dot_opam_dirs =
+      OpamStd.List.filter_map
+        (fun dir ->
+           interpret_basename (OpamFilename.basename_dir dir)
+           >>| fun fname_form ->
+           { fname_form
+           ; opam_file  = opt_file (dir // "opam" )
+           ; descr_file = opt_file (dir // "descr")
+           ; files_dir  = opt_dir  (dir /  "files")
+           })
+        (OpamFilename.dirs dir)
+    in
+    opam_and_pkg_dot_opam_files @ opam_and_pkg_dot_opam_dirs
+end
+
 let prepare ?name ?version ?(repo_label=default_label) http_url =
   let open OpamFilename.Op in
   let open OpamStd.Option.Op in (* Option monad *)
+  let open Pkg in
   OpamFilename.with_tmp_dir @@ fun tmpdir ->
   (* Fetch the archive *)
   let url = (http_url,None) in
@@ -628,33 +690,35 @@ let prepare ?name ?version ?(repo_label=default_label) http_url =
   (* Utility functions *)
   let f_opt f = if OpamFilename.exists f then Some f else None in
   let dir_opt d = if OpamFilename.exists_dir d then Some d else None in
-  let get_file name reader dir =
-    dir >>= dir_opt >>= fun d ->
-    f_opt (d // name) >>= fun f ->
+  let read_file reader f =
     try Some (f, reader f)
     with OpamFormat.Bad_format _ -> None
   in
-  let src_meta_dir = dir_opt (srcdir / "opam") ++ dir_opt srcdir in
-  let prepare_one opam_file name version =
-    let get_opam = get_file opam_file OpamFile.OPAM.read in
-    let get_descr dir =
-      get_file "descr" OpamFile.Descr.read dir >>= fun (_,d as descr) ->
+  let get_file name dir =
+    dir >>= dir_opt >>= fun d ->
+    f_opt (d // name)
+  in
+  let prepare_one version (pkg : Pkg.t) =
+    let get_opam dir = get_file "opam" dir >>= read_file OpamFile.OPAM.read in
+    let read_descr f =
+      read_file OpamFile.Descr.read f >>= fun (_,d as descr) ->
       if OpamFile.Descr.synopsis d = OpamFile.Descr.synopsis descr_template
       then None else Some descr
     in
+    let get_descr dir = get_file "descr" dir >>= read_descr in
     let get_files_dir dir = dir >>= dir_opt >>= fun d -> dir_opt (d / "files") in
     (* Get opam from the archive *)
-    let src_opam = get_opam src_meta_dir in
+    let src_opam = pkg.opam_file >>= read_file OpamFile.OPAM.read in
     (* Guess package name and version *)
-    let name = match name, src_opam >>| snd >>= OpamFile.OPAM.name_opt with
-      | None, None ->
+    let name = match pkg.fname_form, src_opam >>| snd >>= OpamFile.OPAM.name_opt with
+      | Opam, None ->
         OpamConsole.error_and_exit "Package name unspecified"
-      | Some n1, Some n2 when n1 <> n2 ->
+      | Pkg_dot_opam n1, Some n2 when n1 <> n2 ->
         OpamConsole.warning
           "Publishing as package %s, while it refers to itself as %s"
           (OpamPackage.Name.to_string n1) (OpamPackage.Name.to_string n2);
         n1
-      | Some n, _ | None, Some n -> n
+      | Pkg_dot_opam n, _ | Opam, Some n -> n
     in
     let version =
       match version ++ (src_opam >>| snd >>= OpamFile.OPAM.version_opt) with
@@ -694,13 +758,13 @@ let prepare ?name ?version ?(repo_label=default_label) http_url =
       get_opam_and_files overlay_dir  ++
       get_opam_and_files prepare_dir ++
       get_opam_and_files pub_dir ++
-      get_opam_and_files src_meta_dir
+      (src_opam >>| fun o -> (o, pkg.files_dir))
     in
     let chosen_descr =
       get_descr overlay_dir ++
       get_descr prepare_dir ++
       get_descr pub_dir ++
-      get_descr src_meta_dir ++
+      (pkg.descr_file >>= read_descr) ++
       get_descr other_versions_pub_dir
     in
     (* Choose and copy or write *)
@@ -745,45 +809,33 @@ let prepare ?name ?version ?(repo_label=default_label) http_url =
       (OpamPackage.to_string package)
       (OpamPackage.to_string package)
   in
-  if (src_meta_dir >>| fun d -> OpamFilename.exists (d // "opam")) +! false then
-    (* If there is an "opam" file, ignore "<pkg>.opam" files *)
-    prepare_one "opam" name version
-  else
-    let pkgs =
-      OpamStd.List.filter_map
-        (fun file ->
-           if OpamFilename.check_suffix file ".opam" then
-             let basename =
-               OpamFilename.basename file
-               |> OpamFilename.Base.to_string
-             in
-             let pkg =
-               OpamFilename.chop_extension file
-               |> OpamFilename.basename
-               |> OpamFilename.Base.to_string
-               |> OpamPackage.Name.of_string
-             in
-             Some (pkg, basename)
-           else
-             None)
-        ((src_meta_dir >>| OpamFilename.files) +! [])
-    in
+  let pkgs = Pkg.scan_dir srcdir in
+  match List.find (fun pkg -> pkg.fname_form = Opam) pkgs with
+  | pkg ->
+    (* If there is an "opam" file or directory, ignore "<pkg>.opam" files or
+       directories *)
+    prepare_one version pkg
+  | exception Not_found ->
     match name with
     | None ->
-      List.iter
-        (fun (name, opam_fname) -> prepare_one opam_fname (Some name) version)
-        pkgs
+      List.iter (prepare_one version) pkgs
     | Some name ->
-      match List.assoc name pkgs with
-      | opam_fname -> prepare_one opam_fname (Some name) version
+      match List.find (fun pkg -> pkg.fname_form = Pkg_dot_opam name) pkgs with
+      | pkg ->
+        prepare_one version pkg
       | exception Not_found ->
         match pkgs with
         | [] ->
           (* Same as old behavior *)
-          prepare_one "opam" (Some name) version
+          prepare_one version
+            { fname_form = Pkg_dot_opam name
+            ; opam_file  = None
+            ; descr_file = f_opt   (srcdir // "descr")
+            ; files_dir  = dir_opt (srcdir /  "files")
+            }
         | _ ->
           OpamConsole.error_and_exit
-            "There are <pkg>.opam files but no %s.opam. \
+            "There are <pkg>.opam files/directories but no %s.opam. \
              I can't decide which opam file to use."
             (OpamPackage.Name.to_string name)
 
