@@ -6,7 +6,7 @@ opam-publish: _build/src/opam_publish.native
 ALWAYS:
 	@
 _build/src/opam_publish.%: ALWAYS
-	ocamlbuild -use-ocamlfind -pkgs opam-lib,opam-lib.repositories,opam-lib.client,cmdliner,github.unix src/opam_publish.$*
+	ocamlbuild -use-ocamlfind -pkgs opam-core,opam-format,opam-repository,opam-state,cmdliner,github.unix src/opam_publish.$*
 
 PREFIX ?= $(shell opam config var prefix)
 install:
