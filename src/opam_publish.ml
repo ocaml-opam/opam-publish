@@ -156,12 +156,21 @@ let create_opam_publish_root () =
 let repo_dir label =
   OpamFilename.Op.(opam_publish_root / "repos" / label)
 
-let user_branch package =
-  "opam-publish" /
+let print_package_list sep = function
+  | nv::r as packages when
+      List.for_all (fun p -> OpamPackage.version p = OpamPackage.version nv) r
+    ->
+    String.concat sep (List.map OpamPackage.name_to_string packages) ^ "." ^
+    OpamPackage.version_to_string nv
+  | packages ->
+    String.concat sep (List.map OpamPackage.to_string packages)
+
+let user_branch packages =
   String.map (function
       | 'a'..'z' | 'A'..'Z' | '0'..'9' | '-' | '.' | '_' as c -> c
       | _ -> '-'
-    ) (OpamPackage.to_string package)
+    ) @@
+  "opam-publish" / print_package_list "+" packages
 
 let repo_of_dir dir =
   let label = OpamFilename.Base.to_string (OpamFilename.basename_dir dir) in
@@ -350,16 +359,25 @@ module GH = struct
       until check (Uri.of_string uri) ()
     ))
 
-  let pull_request title user token repo ?text package =
-    (* let repo = gh_repo.owner/gh_repo.name in *)
+  let pull_request title user token repo ?text packages =
     let title = match title with
-      | None | Some "" -> OpamPackage.to_string package ^ " — via opam-publish"
-      | Some t -> t in
+      | None | Some "" ->
+        (match packages with
+         | [] -> assert false
+         | [p] -> Printf.sprintf "Package %s" (OpamPackage.to_string p)
+         | [p1;p2] ->
+           Printf.sprintf "Packages %s and %s"
+             (OpamPackage.to_string p1) (OpamPackage.to_string p2)
+         | p::ps ->
+           Printf.sprintf "Package %s and %d others"
+             (OpamPackage.to_string p) (List.length ps))
+      | Some t -> t
+    in
     let pull = {
       Github_t.
       new_pull_title = title;
       new_pull_base = "master";
-      new_pull_head = user^":"^user_branch package;
+      new_pull_head = user^":"^user_branch packages;
       new_pull_body = text;
     } in
     let update_pull = {
@@ -375,7 +393,7 @@ module GH = struct
       Stream.find Github_t.(fun p ->
         (match p.pull_head.branch_user with
          | None -> false | Some u -> u.user_login = user) &&
-        p.pull_head.branch_ref = user_branch package &&
+        p.pull_head.branch_ref = user_branch packages &&
         p.pull_state = `Open
       ) pulls
     in
@@ -420,35 +438,44 @@ let repo_package_dir package =
     OpamPackage.to_string package
   )
 
-let add_metadata ?msg repo user token package title lint user_meta_dir =
+let add_metadata ?msg repo user token title lint package_user_meta_dirs =
   let mirror = repo_dir repo.label in
-  let opam,descr =
+  let pkg_opam_descr_list =
     OpamFilename.in_dir mirror @@ fun () ->
-    let meta_dir = repo_package_dir package in
-    if OpamFilename.exists_dir meta_dir then
-      git ["rm"; "-r"; OpamFilename.Dir.to_string meta_dir];
-    OpamFilename.mkdir (OpamFilename.dirname_dir meta_dir);
-    OpamFilename.copy_dir
-      ~src:user_meta_dir
-      ~dst:meta_dir;
-    let setmode f mode =
-      let file = OpamFilename.Op.(meta_dir // f) in
-      if OpamFilename.exists file then OpamFilename.chmod file mode;
+    let pkg_opam_descr =
+      List.map (fun (package, user_meta_dir) ->
+          let meta_dir = repo_package_dir package in
+          if OpamFilename.exists_dir meta_dir then
+            git ["rm"; "-r"; OpamFilename.Dir.to_string meta_dir];
+          OpamFilename.mkdir (OpamFilename.dirname_dir meta_dir);
+          OpamFilename.copy_dir
+            ~src:user_meta_dir
+            ~dst:meta_dir;
+          let setmode f mode =
+            let file = OpamFilename.Op.(meta_dir // f) in
+            if OpamFilename.exists file then OpamFilename.chmod file mode;
+          in
+          setmode "opam" 0o644;
+          setmode "descr" 0o644;
+          let () =
+            let dir = OpamFilename.Op.(meta_dir / "files") in
+            if OpamFilename.exists_dir dir then
+              Unix.chmod (OpamFilename.Dir.to_string dir) 0o755
+          in
+          git ["add"; OpamFilename.Dir.to_string meta_dir];
+          package,
+          OpamFile.OPAM.read OpamFilename.Op.(meta_dir // "opam"),
+          OpamFile.Descr.read OpamFilename.Op.(meta_dir // "descr"))
+        package_user_meta_dirs
     in
-    setmode "opam" 0o644;
-    setmode "descr" 0o644;
-    let () =
-      let dir = OpamFilename.Op.(meta_dir / "files") in
-      if OpamFilename.exists_dir dir then
-        Unix.chmod (OpamFilename.Dir.to_string dir) 0o755
+    let names =
+      List.map (fun (nv,_) -> OpamPackage.to_string nv)
+        package_user_meta_dirs
     in
-    git ["add"; OpamFilename.Dir.to_string meta_dir];
     git ["commit"; "-m";
-         Printf.sprintf "%s - via opam-publish"
-           (OpamPackage.to_string package)];
-    git ["push"; "user"; "+HEAD:"^user_branch package];
-    OpamFile.OPAM.read OpamFilename.Op.(meta_dir // "opam"),
-    OpamFile.Descr.read OpamFilename.Op.(meta_dir // "descr")
+         Printf.sprintf "%s - via opam-publish" (String.concat ", " names)];
+    git ["push"; "user"; "+HEAD:"^user_branch (List.map fst package_user_meta_dirs)];
+    pkg_opam_descr
   in
   let lint_text = match lint with
     | Pass -> ""
@@ -466,6 +493,37 @@ let add_metadata ?msg repo user token package title lint user_meta_dir =
       Printf.sprintf "\n---\n%s\n" str
   in
   let text =
+    let get_txt f =
+      match List.map (fun (nv,_,_ as x) -> nv, f x) pkg_opam_descr_list with
+      | (_,x) :: r when List.for_all (fun (_, y) -> x = y) r -> x
+      | l ->
+        "\n" ^ String.concat "\n"
+          (List.map (fun (nv, t) ->
+               Printf.sprintf "  `%s`: %s" (OpamPackage.to_string nv) t)
+              l)
+    in
+    let summary = match pkg_opam_descr_list with
+      | [p, _, descr] ->
+        Printf.sprintf "### `%s`\n\n%s\n"
+          (OpamPackage.to_string p) (OpamFile.Descr.full descr)
+      | ((p, _, descr) :: r) as ps when
+          List.for_all
+            (fun (_, _, d) -> OpamFile.Descr.(synopsis d = synopsis descr)) r
+        ->
+        Printf.sprintf "%s\n\nThis pull-request concerns:\n%s\n"
+          (OpamFile.Descr.synopsis descr)
+          (OpamStd.Format.itemize ~bullet:"-"
+             (fun (nv, _, descr) ->
+                Printf.sprintf "`%s`" (OpamPackage.to_string nv))
+             ps)
+      | ps ->
+        Printf.sprintf "This pull-request concerns:\n%s\n"
+          (OpamStd.Format.itemize ~bullet:"-"
+             (fun (nv, _, descr) ->
+                Printf.sprintf "`%s`: %s" (OpamPackage.to_string nv)
+                  (OpamFile.Descr.synopsis descr))
+             ps)
+    in
     Printf.sprintf
       "%s\n\
        \n---\n\
@@ -475,17 +533,22 @@ let add_metadata ?msg repo user token package title lint user_meta_dir =
        \n---\n\
        %s\n\
        %s\
-       Pull-request generated by opam-publish v%s"
-    (OpamFile.Descr.full descr)
-    (String.concat " " (OpamFile.OPAM.homepage opam))
-    OpamStd.Option.Op.((OpamFile.OPAM.dev_repo opam >>|
-                         OpamTypesBase.string_of_pin_option) +! "")
-    (String.concat " " (OpamFile.OPAM.bug_reports opam))
-    lint_text msg
-    Version.version
+       :camel: Pull-request generated by opam-publish v%s"
+      summary
+      (get_txt (fun (_,opam,_) ->
+           String.concat " " (OpamFile.OPAM.homepage opam)))
+      (get_txt OpamStd.Option.Op.((fun (_,opam,_) ->
+           (OpamFile.OPAM.dev_repo opam >>|
+            OpamTypesBase.string_of_pin_option) +! "")))
+      (get_txt (fun (_,opam,_) ->
+           String.concat " " (OpamFile.OPAM.bug_reports opam)))
+      lint_text
+      msg
+      Version.version
   in
   let url =
-    GH.pull_request title user token repo ~text package
+    GH.pull_request title user token repo ~text
+      (List.map fst package_user_meta_dirs)
   in
   OpamConsole.msg "Pull-requested: %s\n" url;
   try
@@ -498,7 +561,7 @@ let add_metadata ?msg repo user token package title lint user_meta_dir =
 let reset_to_existing_pr package repo =
   let mirror = repo_dir repo.label in
   OpamFilename.in_dir mirror @@ fun () ->
-  try git ["reset"; "--hard"; "remotes"/"user"/user_branch package; "--"]; true
+  try git ["reset"; "--hard"; "remotes"/"user"/user_branch [package]; "--"]; true
   with OpamSystem.Process_error _ -> false
 
 let get_git_user_dir package repo =
@@ -529,27 +592,32 @@ let get_git_max_v_dir package repo =
     with Not_found -> None
   else None
 
-let sanity_checks meta_dir =
-  let files = OpamFilename.files meta_dir in
-  let dirs = OpamFilename.dirs meta_dir in
-  let warns =
-    files |> List.fold_left (fun warns f ->
-        match OpamFilename.Base.to_string (OpamFilename.basename f) with
-        | "opam" | "descr" | "url" -> warns
-        | f -> (92, `Warning, Printf.sprintf "extra file %S" f) :: warns
-      ) []
+let sanity_checks meta_dirs =
+  let check_one meta_dir =
+    let files = OpamFilename.files meta_dir in
+    let dirs = OpamFilename.dirs meta_dir in
+    let warns =
+      files |> List.fold_left (fun warns f ->
+          match OpamFilename.Base.to_string (OpamFilename.basename f) with
+          | "opam" | "descr" | "url" -> warns
+          | f -> (92, `Warning, Printf.sprintf "extra file %S" f) :: warns
+        ) []
+    in
+    let warns =
+      dirs |> List.fold_left (fun warns d ->
+          match OpamFilename.Base.to_string (OpamFilename.basename_dir d) with
+          | "files" -> warns
+          | d -> (91, `Warning, Printf.sprintf "extra dir %S" d) :: warns
+        ) warns
+    in
+    if warns <> [] then
+      OpamConsole.error "Bad contents in %s:\n%s\n"
+        (OpamFilename.Dir.to_string meta_dir)
+        (OpamFile.OPAM.warns_to_string warns);
+    if warns = [] then Pass
+    else if List.exists (function _,`Error,_ -> true | _ -> false) warns
+    then Fail warns else Warnings warns
   in
-  let warns =
-    dirs |> List.fold_left (fun warns d ->
-        match OpamFilename.Base.to_string (OpamFilename.basename_dir d) with
-        | "files" -> warns
-        | d -> (91, `Warning, Printf.sprintf "extra dir %S" d) :: warns
-      ) warns
-  in
-  if warns <> [] then
-    OpamConsole.error "Bad contents in %s:\n%s\n"
-      (OpamFilename.Dir.to_string meta_dir)
-      (OpamFile.OPAM.warns_to_string warns);
   let ( * ) a b =
     let warns = function Fail w | Warnings w -> w | Pass -> [] in
     match (a,b) with
@@ -557,15 +625,28 @@ let sanity_checks meta_dir =
     | Warnings _, _ | _, Warnings _ -> Warnings (warns a @ warns b)
     | Pass, Pass -> Pass
   in
-  (if warns = [] then Pass
-   else if List.exists (function _,`Error,_ -> true | _ -> false) warns
-   then Fail warns else Warnings warns)
-  * check_opam OpamFilename.Op.(meta_dir // "opam")
-  * check_url OpamFilename.Op.(meta_dir // "url")
-  * check_descr OpamFilename.Op.(meta_dir // "descr")
+  let urls =
+    List.map (fun d ->
+        let f = OpamFilename.Op.(d // "url") in
+        f, OpamFile.URL.read f)
+      meta_dirs
+  in
+  let url = match urls with
+    | (f, u)::r when List.for_all (fun (_,u1) -> u1 = u) r -> f
+    | _ ->
+      OpamConsole.error_and_exit
+        "Submitting multiple packages with different URLs is not supported";
+  in
+  List.fold_left (fun acc d ->
+      acc *
+      check_one d *
+      check_opam OpamFilename.Op.(d // "opam") *
+      check_descr OpamFilename.Op.(d // "descr"))
+    Pass meta_dirs
+  * check_url url
 
-let submit ?msg repo_label user_opt package title meta_dir =
-  let check = sanity_checks meta_dir in
+let submit ?msg repo_label user_opt title packages_dirs =
+  let check = sanity_checks (List.map snd packages_dirs) in
   let pass = match check with
     | Pass -> true
     | Warnings _ ->
@@ -599,7 +680,7 @@ let submit ?msg repo_label user_opt package title meta_dir =
   in
   (* pull-request processing *)
   update_mirror repo;
-  add_metadata ?msg repo user token package title check meta_dir
+  add_metadata ?msg repo user token title check packages_dirs
 
 
 (* -- Prepare command -- *)
@@ -967,26 +1048,42 @@ let repo_cmd =
   Term.(ret (pure repo $ command $ label $ gh_address $ github_user)),
   Term.info "repo" ~doc
 
-let guess_prepared_dir () =
+let guess_prepared_dirs () =
   try
-    let repo = repo_of_dir (OpamFilename.cwd ()) in
+    let srcdir = OpamFilename.cwd () in
+    let repo = repo_of_dir srcdir in
     let tag = latest_tag () in
-    let name =
-      try
-        OpamPackage.Name.to_string @@
-        OpamFile.OPAM.name @@ OpamFile.OPAM.read @@
-        List.find OpamFilename.exists @@
-        List.map OpamFilename.of_string ["opam";"opam/opam"]
-      with Not_found -> repo.name
+    let packages =
+      let pkgs = Pkg.scan_dir srcdir in
+      if pkgs = [] then [repo.name] else
+        List.map (fun pkg ->
+            let open Pkg in
+            let nopt, vopt =
+              match pkg.opam_file with
+              | None -> None, None
+              | Some f ->
+                let o = OpamFile.OPAM.safe_read f in
+                OpamFile.OPAM.(name_opt o, version_opt o)
+            in
+            let v = match vopt with
+              | None -> tag
+              | Some v -> OpamPackage.Version.to_string v
+            in
+            match nopt, pkg.fname_form with
+            | Some n, _ -> OpamPackage.Name.to_string n ^ "." ^ v
+            | None, Pkg_dot_opam name -> OpamPackage.Name.to_string name ^ "." ^ v
+            | None, Opam -> repo.name ^ "." ^ v)
+          pkgs
     in
-    let d = Printf.sprintf "%s.%s" name tag in
-    if Sys.file_exists d then Some d else None
-  with _ -> None
+    OpamStd.List.filter_map (fun d ->
+        if Sys.file_exists d then Some d else None)
+      packages
+  with e -> []
 
 let submit_cmd =
   let doc = "submits or updates a pull-request to an OPAM repo." in
   let dir =
-    Arg.(value & pos ~rev:true 0 (some string) None & info []
+    Arg.(value & pos_all string [] & info []
            ~docv:"DIR"
            ~doc:"Path to the metadata from opam-publish prepare")
   in
@@ -1002,20 +1099,22 @@ let submit_cmd =
                  such as release notes.")
   in
   let submit user dir msg repo_name title =
-    let dir = match dir with
-      | None -> guess_prepared_dir ()
-      | some -> some
+    let dir =
+      if dir = [] then guess_prepared_dirs () else dir
     in
-    match dir with
-    | None -> `Error (false, "Please specify the output dir of \
-                              'opam-publish prepare'")
-    | Some dir ->
-      `Ok (
-        submit ?msg repo_name user
-          (OpamPackage.of_string (Filename.basename dir))
-          title
-          (OpamFilename.Dir.of_string dir)
-      )
+    if dir = [] then
+      `Error (false, "Please specify the output dir of \
+                      'opam-publish prepare'")
+    else
+    let packages_dirs =
+      List.map (fun d ->
+          OpamPackage.of_string (Filename.basename d),
+          OpamFilename.Dir.of_string d)
+        dir
+    in
+    `Ok (
+      submit ?msg repo_name user title packages_dirs
+    )
   in
   Term.(ret (pure submit $ github_user $ dir $ msg $ repo_name $ title)),
   Term.info "submit" ~doc
@@ -1044,8 +1143,7 @@ See '%s COMMAND --help' for details on each command.\n\
 
 let () =
   at_exit cleanup;
-  Sys.catch_break true;
-  let _ = Sys.signal Sys.sigpipe (Sys.Signal_handle (fun _ -> ())) in
+  OpamSystem.init ();
   try match Term.eval_choice ~catch:false help_cmd cmds with
     | `Error _ -> exit 1
     | _ -> exit 0
