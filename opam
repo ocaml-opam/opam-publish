@@ -1,5 +1,5 @@
 opam-version: "1.2"
-name: "publish"
+name: "opam-publish"
 version: "0.3.5"
 maintainer: "Louis Gesbert <louis.gesbert@ocamlpro.com>"
 authors: [
@@ -8,7 +8,7 @@ authors: [
 ]
 homepage: "http://opam.ocaml.org"
 bug-reports: "https://github.com/OCamlPro/opam-publish/issues"
-license: "LGPL-3.0 with OCaml linking exception"
+license: "GPL-3"
 dev-repo: "https://github.com/OCamlPro/opam-publish.git"
 build: [make]
 depends: [
