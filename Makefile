@@ -10,9 +10,9 @@ _build/src/opam_publish.%: ALWAYS
 
 PREFIX ?= $(shell opam config var prefix)
 install:
-	@opam-installer --prefix=$(PREFIX) publish.install
+	@opam-installer --prefix=$(PREFIX) opam-publish.install
 remove:
-	@opam-installer -u --prefix=$(PREFIX) publish.install
+	@opam-installer -u --prefix=$(PREFIX) opam-publish.install
 
 clean:
 	ocamlbuild -clean
