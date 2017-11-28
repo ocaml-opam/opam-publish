@@ -714,6 +714,9 @@ module Pkg = struct
     let opam_and_pkg_dot_opam_files =
       OpamStd.List.filter_map
         (fun file ->
+           if Unix.((stat (OpamFilename.to_string file)).st_size = 0)
+           then None
+           else
            interpret_basename (OpamFilename.basename file)
            >>| fun fname_form ->
            match fname_form with
@@ -769,7 +772,11 @@ let prepare ?name ?version ?(repo_label=default_label) http_url =
   let srcdir = tmpdir / "src" in
   OpamFilename.extract archive srcdir;
   (* Utility functions *)
-  let f_opt f = if OpamFilename.exists f then Some f else None in
+  let f_opt f =
+    if OpamFilename.exists f &&
+       Unix.((stat (OpamFilename.to_string f)).st_size > 0)
+    then Some f else None
+  in
   let dir_opt d = if OpamFilename.exists_dir d then Some d else None in
   let read_file reader f =
     try Some (f, reader f)
