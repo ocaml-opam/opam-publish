@@ -409,6 +409,13 @@ module Args = struct
       "File containing a message to be appended to the pull request's body, \
        such as release notes."
 
+  let split =
+    value & flag &
+    info ["split"] ~docs ~doc:
+      "Split the URL and description of packages into separate files (`url` \
+       and `descr`). This can be useful on legacy repositories, but is \
+       deprecated."
+
 end
 
 let identical f = function
@@ -512,8 +519,35 @@ let pull_request_message ?msg meta_opams =
   in
   title, body
 
+let to_files ?(split=false) meta_opams =
+  OpamPackage.Map.fold (fun p (m, o) acc ->
+      let dir =
+        "packages" / OpamPackage.Name.to_string p.name / OpamPackage.to_string p
+      in
+      let acc = (dir, None) :: acc in
+      let o, acc =
+        match split, OpamFile.OPAM.url o with
+        | true, Some u ->
+          OpamFile.OPAM.with_url_opt None o,
+          (dir / "url", Some (OpamFile.URL.write_to_string u, 0o644)) :: acc
+        | _ -> o, acc
+      in
+      let o, acc =
+        match split, OpamFile.OPAM.descr o with
+        | true, Some d ->
+          OpamFile.OPAM.with_descr_opt None o,
+          (dir / "descr", Some (OpamFile.Descr.write_to_string d, 0o644)) :: acc
+        | _ -> o, acc
+      in
+      (dir / "opam",
+       (Some (OpamFile.OPAM.to_string_with_preserved_format (opam m) o, 0o644)))
+      :: acc)
+    meta_opams
+    []
+  |> List.rev
+
 let main_term root =
-  let run args force tag version dry_run repo title msg =
+  let run args force tag version dry_run repo title msg split =
     let dirs, opams, urls, projects, names =
       List.fold_left (fun (dirs, opams, urls, projects, names) -> function
           | `Dir d -> (dirs @ [d], opams, urls, projects, names)
@@ -532,21 +566,18 @@ let main_term root =
     then OpamStd.Sys.exit_because `Aborted;
     let pr_title, pr_body = pull_request_message ?msg meta_opams in
     let pr_title = title +! pr_title in
-    let opams_str =
-      OpamPackage.Map.map (fun (m, o) ->
-          OpamFile.OPAM.to_string_with_preserved_format (opam m) o)
-        meta_opams
-    in
+    let files = to_files ~split meta_opams in
     PublishSubmit.submit
       root
       ~dry_run
       repo pr_title pr_body
-      opams_str
+      (OpamPackage.Map.keys meta_opams)
+      files
     in
   let open Args in
   Term.(pure run
         $ src_args $ force $ tag $ version $ dry_run
-        $ repo $ title $ msg_file)
+        $ repo $ title $ msg_file $ split)
 
 
 let main_info =

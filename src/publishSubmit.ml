@@ -42,30 +42,7 @@ let user_branch packages =
       | _ -> '-'
     ) @@
   "opam-publish" / print_package_list "+" packages
-(*
-let get_user repo user_opt =
-  let dir = repo_dir repo.label in
-  match user_opt with
-  | Some u ->
-    if OpamFilename.exists_dir dir && user_of_dir dir <> u then
-      OpamConsole.error_and_exit `Configuration_error
-        "Repo %s already registered with GitHub user %s"
-        repo.label u
-    else u
-  | None ->
-    if OpamFilename.exists_dir dir then user_of_dir dir else
-    let rec get_u () =
-      OpamConsole.msg
-        "A GitHub account is currently required to directly contribute to \
-         the official opam repository.\n\
-         If you don't have a GitHub account, you can create one at \
-         https://github.com/join\n\n";
-      match OpamConsole.read "Please enter your GitHub name:" with
-      | None -> get_u ()
-      | Some u -> u
-    in
-    get_u ()
-*)
+
 module GH = struct
   open Lwt
   open Github
@@ -255,25 +232,12 @@ module GH = struct
       until check (Uri.of_string uri) ()
     ))
 
-  let pull_request title user token repo ?text packages =
-    let title = match title with
-      | None | Some "" ->
-        (match packages with
-         | [] -> assert false
-         | [p] -> Printf.sprintf "Package %s" (OpamPackage.to_string p)
-         | [p1;p2] ->
-           Printf.sprintf "Packages %s and %s"
-             (OpamPackage.to_string p1) (OpamPackage.to_string p2)
-         | p::ps ->
-           Printf.sprintf "Package %s and %d others"
-             (OpamPackage.to_string p) (List.length ps))
-      | Some t -> t
-    in
+  let pull_request title user token repo ?text branch =
     let pull = {
       Github_t.
       new_pull_title = title;
       new_pull_base = "master";
-      new_pull_head = user^":"^user_branch packages;
+      new_pull_head = user^":"^branch;
       new_pull_body = text;
     } in
     let update_pull = {
@@ -289,7 +253,7 @@ module GH = struct
       Stream.find Github_t.(fun p ->
         (match p.pull_head.branch_user with
          | None -> false | Some u -> u.user_login = user) &&
-        p.pull_head.branch_ref = user_branch packages &&
+        p.pull_head.branch_ref = branch &&
         p.pull_state = `Open
       ) pulls
     in
@@ -338,33 +302,33 @@ let repo_package_dir repo_dir package =
 let repo_opam repo_dir package =
   OpamFilename.Op.(repo_package_dir repo_dir package // "opam")
 
-let add_metadata root ?(dry_run=false) repo user token title message opams =
+let add_files_and_pr root ?(dry_run=false) repo user token title message branch files =
   let mirror = repo_dir root repo in
-  let packages = OpamPackage.Map.keys opams in
   let () =
-    OpamPackage.Map.iter (fun package opam_str ->
-        let meta_dir = repo_package_dir mirror package in
-        if OpamFilename.exists_dir meta_dir then
-          git_command ~dir:mirror
-            ["rm"; "-r"; OpamFilename.Dir.to_string meta_dir];
-        OpamFilename.mkdir meta_dir;
-        let opam_f = repo_opam mirror package in
-        OpamFilename.write opam_f opam_str;
-        OpamFilename.chmod opam_f 0o644;
-        git_command ~dir:mirror
-          ["add"; OpamFilename.to_string opam_f])
-      opams;
+    List.iter (fun (rel_path, contents) ->
+        match contents with
+        | None ->
+          if Sys.file_exists
+              (Filename.concat (OpamFilename.Dir.to_string mirror) rel_path)
+          then git_command ~dir:mirror ["rm"; "-r"; rel_path]
+        | Some (contents, perms) ->
+          let file = OpamFilename.Op.(mirror // rel_path) in
+          OpamFilename.mkdir (OpamFilename.dirname file);
+          OpamFilename.write file contents;
+          OpamFilename.chmod file perms;
+          git_command ~dir:mirror ["add"; rel_path])
+      files;
     git_command ~dir:mirror
       ["commit"; "-m"; title];
     git_command ~dir:mirror
-      ["push"; "user"; "+HEAD:"^user_branch packages]
+      ["push"; "user"; "+HEAD:"^branch]
   in
   OpamFilename.in_dir mirror (fun () -> ignore (Sys.command "git show HEAD"));
   if dry_run then OpamStd.Sys.exit_because `Success;
   if not (OpamConsole.confirm "\nFile a pull-request for this patch ?") then
     OpamStd.Sys.exit_because `Aborted;
   let url =
-    GH.pull_request (Some title) user token repo ~text:message packages
+    GH.pull_request title user token repo ~text:message branch
   in
   OpamConsole.msg "Pull-requested: %s\n" url;
   try
@@ -374,7 +338,7 @@ let add_metadata root ?(dry_run=false) repo user token title message opams =
     OpamSystem.command [auto_open; url]
   with OpamSystem.Command_not_found _ -> ()
 
-let submit root ?dry_run repo title msg opams =
+let submit root ?dry_run repo title msg packages files =
   (* Prepare the repo *)
   let mirror_dir = repo_dir root repo in
   let user, token =
@@ -388,4 +352,5 @@ let submit root ?dry_run repo title msg opams =
   in
   (* pull-request processing *)
   update_mirror root repo;
-  add_metadata root ?dry_run repo user token title msg opams
+  let branch = user_branch packages in
+  add_files_and_pr root ?dry_run repo user token title msg branch files
