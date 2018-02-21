@@ -1,3 +1,8 @@
+0.3.5:
+* Support <pkgname>.opam files
+* Add Travis CI tests
+* Support the simultaneous publication of multiple packages from the same repo
+
 0.3.4:
 * Resolve issue with newer version of github 2.2.0
 * Port to opam-lib 1.3.0
