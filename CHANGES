@@ -1,6 +1,7 @@
-1.0.0~beta:
+2.0.0~beta:
 * Now based on opam 2 libs and intended for publications in the 2.0 format
   (inclusive opam files, etc.)
+* Bumped version number to avoid confusion with opam versions
 * Removed the two-step operation ("prepare" and "publish"). A single invocation
   does all
 * Removed looking up current opam pinnings and repositories for metadata, which

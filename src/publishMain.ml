@@ -588,7 +588,7 @@ let main_term root =
 
 let main_info =
   Term.info "opam-publish"
-    ~version:"2.0"
+    ~version:Version.version
     ~doc:"Helper for package publications on opam repositories"
     ~man:[
       `S "DESCRIPTION";

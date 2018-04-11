@@ -3,9 +3,9 @@ all: opam-publish
 ALWAYS:
 	@
 
-opam-publish: _build/default/src/publishMain.exe ALWAYS
-	jbuilder build $<
-	@cp $< $@
+opam-publish: ALWAYS
+	jbuilder build _build/default/src/publishMain.exe
+	@cp _build/default/src/publishMain.exe $@
 
 build: ALWAYS
 	jbuilder build @install --dev
