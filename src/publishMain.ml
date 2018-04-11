@@ -398,6 +398,12 @@ module Args = struct
     info ["repo"] ~docs ~docv:"REPO" ~doc:
       "The package repository to submit to, in the form $(b,owner/name)"
 
+  let target_branch =
+    value & opt string "master" &
+    info ["target-branch";"b"] ~docs ~docv:"BRANCH" ~doc:
+      "The branch to submit the pull-requests to on the target package \
+       repository"
+
   let title =
     value & opt (some string) None &
     info ["t"; "title"] ~docs ~docv:"TXT" ~doc:
@@ -547,7 +553,7 @@ let to_files ?(split=false) meta_opams =
   |> List.rev
 
 let main_term root =
-  let run args force tag version dry_run repo title msg split =
+  let run args force tag version dry_run repo target_branch title msg split =
     let dirs, opams, urls, projects, names =
       List.fold_left (fun (dirs, opams, urls, projects, names) -> function
           | `Dir d -> (dirs @ [d], opams, urls, projects, names)
@@ -570,14 +576,14 @@ let main_term root =
     PublishSubmit.submit
       root
       ~dry_run
-      repo pr_title pr_body
+      repo target_branch pr_title pr_body
       (OpamPackage.Map.keys meta_opams)
       files
-    in
+  in
   let open Args in
   Term.(pure run
         $ src_args $ force $ tag $ version $ dry_run
-        $ repo $ title $ msg_file $ split)
+        $ repo $ target_branch $ title $ msg_file $ split)
 
 
 let main_info =

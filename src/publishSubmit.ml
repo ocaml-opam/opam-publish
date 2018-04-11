@@ -232,11 +232,11 @@ module GH = struct
       until check (Uri.of_string uri) ()
     ))
 
-  let pull_request title user token repo ?text branch =
+  let pull_request title user token repo ?text branch target_branch =
     let pull = {
       Github_t.
       new_pull_title = title;
-      new_pull_base = "master";
+      new_pull_base = target_branch;
       new_pull_head = user^":"^branch;
       new_pull_body = text;
     } in
@@ -285,11 +285,11 @@ let init_mirror root repo user token =
   GH.fork token repo;
   git_command ~dir ["remote"; "add"; "user"; github_root^user/(snd repo)]
 
-let update_mirror root repo =
+let update_mirror root repo branch =
   let dir = repo_dir root repo in
   OpamConsole.msg "Fetching the package repository, this may take a while...\n";
   git_command ~dir ["fetch"; "--multiple"; "origin"; "user"];
-  git_command ~dir ["reset"; "origin/master"; "--hard"]
+  git_command ~dir ["reset"; "origin"/branch; "--hard"]
 
 let repo_package_dir repo_dir package =
   OpamFilename.Op.(
@@ -302,7 +302,9 @@ let repo_package_dir repo_dir package =
 let repo_opam repo_dir package =
   OpamFilename.Op.(repo_package_dir repo_dir package // "opam")
 
-let add_files_and_pr root ?(dry_run=false) repo user token title message branch files =
+let add_files_and_pr
+    root ?(dry_run=false) repo user token title message
+    branch target_branch files =
   let mirror = repo_dir root repo in
   let () =
     List.iter (fun (rel_path, contents) ->
@@ -328,7 +330,7 @@ let add_files_and_pr root ?(dry_run=false) repo user token title message branch 
   if not (OpamConsole.confirm "\nFile a pull-request for this patch ?") then
     OpamStd.Sys.exit_because `Aborted;
   let url =
-    GH.pull_request title user token repo ~text:message branch
+    GH.pull_request title user token repo ~text:message branch target_branch
   in
   OpamConsole.msg "Pull-requested: %s\n" url;
   try
@@ -338,7 +340,7 @@ let add_files_and_pr root ?(dry_run=false) repo user token title message branch 
     OpamSystem.command [auto_open; url]
   with OpamSystem.Command_not_found _ -> ()
 
-let submit root ?dry_run repo title msg packages files =
+let submit root ?dry_run repo target_branch title msg packages files =
   (* Prepare the repo *)
   let mirror_dir = repo_dir root repo in
   let user, token =
@@ -351,6 +353,6 @@ let submit root ?dry_run repo title msg packages files =
     user, token
   in
   (* pull-request processing *)
-  update_mirror root repo;
+  update_mirror root repo target_branch;
   let branch = user_branch packages in
-  add_files_and_pr root ?dry_run repo user token title msg branch files
+  add_files_and_pr root ?dry_run repo user token title msg branch target_branch files
