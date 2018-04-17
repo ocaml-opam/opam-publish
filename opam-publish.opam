@@ -10,7 +10,7 @@ authors: [
 homepage: "https://github.com/ocaml/opam-publish"
 bug-reports: "https://github.com/ocaml/opam-publish/issues"
 license: "LGPL-2.1 with OCaml linking exception"
-dev-repo: "https://github.com/ocaml/opam-publish.git"
+dev-repo: "git+https://github.com/ocaml/opam-publish.git"
 build: [ "jbuilder" "build" "-p" name ]
 depends: [
   "opam-core" {build & >= "2.0.0~beta5"}
@@ -18,6 +18,7 @@ depends: [
   "opam-state" {build & >= "2.0.0~beta5"}
   "ocamlfind" {build}
   "cmdliner" {build}
+  ("ssl" | "tls")
   ("github" {build & >= "2.0.0" & < "3.0.0"} |
    "github-unix" {build & >= "3.0.0"})
 ]
