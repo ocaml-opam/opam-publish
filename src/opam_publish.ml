@@ -431,20 +431,22 @@ let update_mirror repo =
       git ["reset"; "origin/master"; "--hard"];
     )
 
-let repo_package_dir package =
+let repo_package_dir (repo_subdirectory : string option) package =
+  let repo_subdirectory : string = OpamStd.Option.default "" repo_subdirectory in
   OpamFilename.Op.(
-    OpamFilename.Dir.of_string "packages" /
+    OpamFilename.Dir.of_string repo_subdirectory /
+    "packages" /
     OpamPackage.Name.to_string (OpamPackage.name package) /
     OpamPackage.to_string package
   )
 
-let add_metadata ?msg repo user token title lint package_user_meta_dirs =
+let add_metadata ?msg repo repo_subdirectory user token title lint package_user_meta_dirs =
   let mirror = repo_dir repo.label in
   let pkg_opam_descr_list =
     OpamFilename.in_dir mirror @@ fun () ->
     let pkg_opam_descr =
       List.map (fun (package, user_meta_dir) ->
-          let meta_dir = repo_package_dir package in
+          let meta_dir = repo_package_dir repo_subdirectory package in
           if OpamFilename.exists_dir meta_dir then
             git ["rm"; "-r"; OpamFilename.Dir.to_string meta_dir];
           OpamFilename.mkdir (OpamFilename.dirname_dir meta_dir);
@@ -564,17 +566,17 @@ let reset_to_existing_pr package repo =
   try git ["reset"; "--hard"; "remotes"/"user"/user_branch [package]; "--"]; true
   with OpamSystem.Process_error _ -> false
 
-let get_git_user_dir package repo =
+let get_git_user_dir package repo_subdirectory repo =
   let mirror = repo_dir repo.label in
   OpamFilename.in_dir mirror @@ fun () ->
-  let meta_dir = repo_package_dir package in
+  let meta_dir = repo_package_dir repo_subdirectory package in
   if OpamFilename.exists_dir meta_dir then Some meta_dir
   else None
 
-let get_git_max_v_dir package repo =
+let get_git_max_v_dir package repo_subdirectory repo =
   let mirror = repo_dir repo.label in
   OpamFilename.in_dir mirror @@ fun () ->
-  let meta_dir = repo_package_dir package in
+  let meta_dir = repo_package_dir repo_subdirectory package in
   let parent = OpamFilename.dirname_dir meta_dir in
   if OpamFilename.exists_dir parent then
     let packages =
@@ -588,7 +590,7 @@ let get_git_max_v_dir package repo =
         OpamPackage.max_version (OpamPackage.Set.of_list packages)
           (OpamPackage.name package)
       in
-      Some (repo_package_dir max)
+      Some (repo_package_dir repo_subdirectory max)
     with Not_found -> None
   else None
 
@@ -645,7 +647,7 @@ let sanity_checks meta_dirs =
     Pass meta_dirs
   * check_url url
 
-let submit ?msg repo_label user_opt title packages_dirs =
+let submit ?msg repo_label repo_subdirectory user_opt title packages_dirs =
   let check = sanity_checks (List.map snd packages_dirs) in
   let pass = match check with
     | Pass -> true
@@ -680,7 +682,7 @@ let submit ?msg repo_label user_opt title packages_dirs =
   in
   (* pull-request processing *)
   update_mirror repo;
-  add_metadata ?msg repo user token title check packages_dirs
+  add_metadata ?msg repo repo_subdirectory user token title check packages_dirs
 
 
 (* -- Prepare command -- *)
@@ -746,7 +748,7 @@ module Pkg = struct
     opam_and_pkg_dot_opam_files @ opam_and_pkg_dot_opam_dirs
 end
 
-let prepare ?name ?version ?(repo_label=default_label) http_url =
+let prepare ?name ?version ?(repo_label=default_label) http_url repo_subdirectory =
   let open OpamFilename.Op in
   let open OpamStd.Option.Op in (* Option monad *)
   let open Pkg in
@@ -823,9 +825,9 @@ let prepare ?name ?version ?(repo_label=default_label) http_url =
     let repo = dir_opt (repo_dir repo_label) >>| repo_of_dir in
     (repo >>| update_mirror) +! ();
     let has_pr = (repo >>| reset_to_existing_pr package) +! false in
-    let pub_dir = repo >>= get_git_user_dir package in
+    let pub_dir = repo >>= get_git_user_dir package repo_subdirectory in
     let other_versions_pub_dir =
-      if has_pr then None else repo >>= get_git_max_v_dir package
+      if has_pr then None else repo >>= get_git_max_v_dir package repo_subdirectory
     in
     (* Choose metadata from the sources *)
     let prep_url =
@@ -959,6 +961,12 @@ let repo_name =
          ~doc:"Local name of the repository to use (see the $(b,repo) \
                subcommand)")
 
+let repo_subdirectory =
+  Arg.(value & opt (some string) None & info ["opam-repo-subdir"]
+         ~docv:"NAME"
+         ~doc:"Name of the subdirectory of the GitHub opam repo where \
+               the packages/ directory is stored, e.g., \"released\"")
+
 let latest_tag () =
   OpamSystem.read_command_output ~verbose:false
     ["git"; "describe"; "--tags"; "--abbrev=0"]
@@ -989,7 +997,7 @@ let prepare_cmd =
                        ~docv:"PACKAGE"
                        ~doc:"Package to release, with optional version" [])
   in
-  let prepare url pkg_opt repo_label =
+  let prepare url pkg_opt repo_label repo_subdirectory =
     let url = match url with
       | None -> guess_github_archive_url ()
       | some -> some
@@ -999,9 +1007,9 @@ let prepare_cmd =
     | Some url ->
       `Ok OpamStd.Option.Op.(
           prepare ?name:(pkg_opt >>| fst) ?version:(pkg_opt >>= snd) ~repo_label
-            url)
+            url repo_subdirectory)
   in
-  Term.(ret (pure prepare $ url $ pkg_opt $ repo_name)),
+  Term.(ret (pure prepare $ url $ pkg_opt $ repo_name $ repo_subdirectory)),
   Term.info "prepare" ~doc
 
 let repo_cmd =
@@ -1098,7 +1106,7 @@ let submit_cmd =
            ~doc:"Message to be appended to the pull request's body, \
                  such as release notes.")
   in
-  let submit user dir msg repo_name title =
+  let submit user dir msg repo_name repo_subdirectory title =
     let dir =
       if dir = [] then guess_prepared_dirs () else dir
     in
@@ -1113,10 +1121,10 @@ let submit_cmd =
         dir
     in
     `Ok (
-      submit ?msg repo_name user title packages_dirs
+      submit ?msg repo_name repo_subdirectory user title packages_dirs
     )
   in
-  Term.(ret (pure submit $ github_user $ dir $ msg $ repo_name $ title)),
+  Term.(ret (pure submit $ github_user $ dir $ msg $ repo_name $ repo_subdirectory $ title)),
   Term.info "submit" ~doc
 
 let cmds = [prepare_cmd; submit_cmd; repo_cmd]
