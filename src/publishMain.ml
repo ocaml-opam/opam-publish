@@ -399,7 +399,7 @@ module Args = struct
       "The package repository to submit to, in the form $(b,owner/name)"
 
   let target_branch =
-    value & opt string "2.0.0" &
+    value & opt string "master" &
     info ["target-branch";"b"] ~docs ~docv:"BRANCH" ~doc:
       "The branch to submit the pull-requests to on the target package \
        repository"
