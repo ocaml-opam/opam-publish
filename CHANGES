@@ -1,3 +1,7 @@
+2.0.0:
+* Switch default branch from 2.0.0 to master
+* Minor fix
+
 2.0.0~beta:
 * Now based on opam 2 libs and intended for publications in the 2.0 format
   (inclusive opam files, etc.)
