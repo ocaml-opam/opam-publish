@@ -51,6 +51,27 @@ let tmp_source tmpdir url =
                      (Digest.string (OpamUrl.to_string url))
                      (OpamUrl.basename url))
 
+let upgrade_to_2_0 ?(local=true) opam0 =
+  OpamStd.Option.iter (fun opam ->
+      let opam2 = OpamFormatUpgrade.opam_file ~filename:opam0 opam in
+      if not (OpamFile.OPAM.equal opam2 opam) then
+        (OpamConsole.warning "%s has %s format, \
+                              which is not accepted on 2.0 repository.%s"
+           (if local then
+              "Opam file " ^ OpamFilename.to_string (OpamFile.filename opam0)
+            else "Downloaded opam file")
+           (OpamConsole.colorise `underline
+              (OpamVersion.to_string (OpamFile.OPAM.opam_version opam)))
+           (if not local then
+              OpamConsole.colorise `bold " Updating it."
+            else "");
+         if local &&
+            not (OpamConsole.confirm " Update it inplace to %s format?"
+                   (OpamConsole.colorise `bold "2.0"))
+         then OpamStd.Sys.exit_because `Aborted;
+         OpamFile.OPAM.write_with_preserved_format ~format_from:opam0 opam0 opam2)
+    ) (OpamFile.OPAM.read_opt opam0)
+
 let get_metas tmpdir dirs opams urls repos tag names version =
   let lopt = function [x] -> Some x | _ -> None in
   let base_meta = {
@@ -87,7 +108,7 @@ let get_metas tmpdir dirs opams urls repos tag names version =
     | _, Some o -> o
     | _ -> OpamFile.OPAM.empty
   in
-  let of_dir m dir =
+  let of_dir ?(local=true) m dir =
     let r =
       OpamStd.List.filter_map (fun (n, o) ->
           let sz =
@@ -96,8 +117,12 @@ let get_metas tmpdir dirs opams urls repos tag names version =
           in
           if sz < 10 || sz > 100_000 then None else
           match n, m.name with
-          | Some n1, Some n2 when n1 = n2 -> Some { m with opam = Some o }
-          | n, None | None, n -> Some { m with opam = Some o; name = n }
+          | Some n1, Some n2 when n1 = n2 ->
+            upgrade_to_2_0 ~local o;
+            Some { m with opam = Some o }
+          | n, None | None, n ->
+            upgrade_to_2_0 ~local  o;
+            Some { m with opam = Some o; name = n }
           | _ -> None)
         (OpamPinned.files_in_source dir)
     in
@@ -159,7 +184,7 @@ let get_metas tmpdir dirs opams urls repos tag names version =
       | { url = Some url; archive = Some archive; opam = None; _ } as m ->
         let srcdir = tmp_source tmpdir url in
         OpamFilename.extract archive srcdir;
-        of_dir m srcdir
+        of_dir ~local:false m srcdir
       | _ -> None);
     (function (* name from opam file *)
       | { opam = Some opam; name = None; _ } as m ->
@@ -296,6 +321,7 @@ let get_opam ?(force=false) meta =
   | None -> None
 
 let get_opams force dirs opams urls repos tag names version =
+  List.iter upgrade_to_2_0 opams;
   OpamFilename.with_tmp_dir @@ fun tmpdir ->
   get_metas tmpdir dirs opams urls repos tag names version |>
   List.map (fun m -> package m, (m, get_opam ~force m)) |>
