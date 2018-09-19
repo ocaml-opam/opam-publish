@@ -13,9 +13,10 @@ license: "LGPL-2.1 with OCaml linking exception"
 dev-repo: "git+https://github.com/ocaml/opam-publish.git"
 build: [ "jbuilder" "build" "-p" name ]
 depends: [
-  "opam-core" {build & >= "2.0.0~beta5"}
-  "opam-format" {build & >= "2.0.0~beta5"}
-  "opam-state" {build & >= "2.0.0~beta5"}
+  "ocaml" {>= "4.03.0"}
+  "opam-core" {build & >= "2.0.0"}
+  "opam-format" {build & >= "2.0.0"}
+  "opam-state" {build & >= "2.0.0"}
   "ocamlfind" {build}
   "cmdliner" {build}
   ("ssl" | "tls")
