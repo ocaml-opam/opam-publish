@@ -53,6 +53,10 @@ let tmp_source tmpdir url =
 
 let upgrade_to_2_0 ?(local=true) opam0 =
   OpamStd.Option.iter (fun opam ->
+      let opam =
+        OpamFileTools.add_aux_files ~dir:(OpamFilename.dirname (OpamFile.filename opam0))
+          ~files_subdir_hashes:true opam
+      in
       let opam2 = OpamFormatUpgrade.opam_file ~filename:opam0 opam in
       if not (OpamFile.OPAM.equal opam2 opam) then
         (OpamConsole.warning "%s has %s format, \
@@ -69,7 +73,11 @@ let upgrade_to_2_0 ?(local=true) opam0 =
             not (OpamConsole.confirm " Update it inplace to %s format?"
                    (OpamConsole.colorise `bold "2.0"))
          then OpamStd.Sys.exit_because `Aborted;
-         OpamFile.OPAM.write_with_preserved_format ~format_from:opam0 opam0 opam2)
+         OpamFile.OPAM.write_with_preserved_format ~format_from:opam0 opam0 opam2);
+      List.iter
+        OpamFilename.(fun name ->
+            remove Op.(dirname (OpamFile.filename opam0) // name))
+        ["descr";"url"];
     ) (OpamFile.OPAM.read_opt opam0)
 
 let get_metas tmpdir dirs opams urls repos tag names version =
