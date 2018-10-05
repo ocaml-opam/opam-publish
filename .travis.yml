@@ -6,7 +6,7 @@ services:
 sudo: false
 env:
  global:
-   - PACKAGE="publish"
+   - PACKAGE="opam-publish"
    - PRE_INSTALL_HOOK="cd /home/opam/opam-repository && git pull origin master && opam update -u -y"
  matrix:
    - DISTRO=debian-stable OCAML_VERSION=4.02.3
