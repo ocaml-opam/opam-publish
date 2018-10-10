@@ -48,7 +48,7 @@ let tmp_archive tmpdir url =
 let tmp_source tmpdir url =
   OpamFilename.Op.(tmpdir / "sources" /
                    Printf.sprintf "%s-%s"
-                     (Digest.string (OpamUrl.to_string url))
+                     (Digest.to_hex (Digest.string (OpamUrl.to_string url)))
                      (OpamUrl.basename url))
 
 let upgrade_to_2_0 ?(local=true) opam0 =
