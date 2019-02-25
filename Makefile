@@ -4,17 +4,17 @@ ALWAYS:
 	@
 
 opam-publish: ALWAYS
-	jbuilder build _build/default/src/publishMain.exe
+	dune build _build/default/src/publishMain.exe
 	@cp _build/default/src/publishMain.exe $@
 
 build: ALWAYS
-	jbuilder build @install --dev
+	dune build @install --dev
 
 install: ALWAYS
-	jbuilder install
+	dune install
 
 uninstall: ALWAYS
-	jbuilder uninstall
+	dune uninstall
 
 clean: ALWAYS
 	rm -rf _build opam-publish .merlin
