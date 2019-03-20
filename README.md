@@ -9,7 +9,9 @@ them to opam package repositories
 ## Prerequisites
 
 This version is for opam 2.0.0, and should not be used with repositories in
-older formats. A Github account is required.
+older formats. A Github account is required. opam repository is cloned over
+ssh, you need to have your *ssh keys* registered in your [Github
+account](https://help.github.com/en/articles/connecting-to-github-with-ssh).
 
 ## Usage
 
