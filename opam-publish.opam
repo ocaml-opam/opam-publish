@@ -24,7 +24,7 @@ depends: [
    "github-unix" {build & >= "3.0.0"})
   ("ssl" {build & = "0.5.5"} | "tls" {build})
 ]
-tags: [ "flags:plugin" ]
+flags: plugin
 synopsis: "A tool to ease contributions to opam repositories"
 description:
 """
