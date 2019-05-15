@@ -1,7 +1,0 @@
-(jbuild_version 1)
-
-(executable
- ((public_name opam-publish)
-  (package opam-publish)
-  (name publishMain)
-  (libraries (lwt opam-core opam-format opam-state cohttp github.unix cmdliner))))
