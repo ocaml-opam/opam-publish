@@ -438,6 +438,13 @@ module Args = struct
       "The branch to submit the pull-requests to on the target package \
        repository"
 
+  let packages_dir =
+    value & opt string "packages" &
+    info ["packages"] ~docs ~docv:"DIR" ~doc:
+      "The relative name of the directory (inside the GitHub \
+       repository) where package descriptions are stored. For \
+       instance, for Coq packages, use \"packages/released\""
+
   let title =
     value & opt (some string) None &
     info ["t"; "title"] ~docs ~docv:"TXT" ~doc:
@@ -559,10 +566,12 @@ let pull_request_message ?msg meta_opams =
   in
   title, body
 
-let to_files ?(split=false) meta_opams =
+let to_files ?(split=false) ~packages_dir meta_opams =
   OpamPackage.Map.fold (fun p (m, o) acc ->
       let dir =
-        "packages" / OpamPackage.Name.to_string p.name / OpamPackage.to_string p
+        packages_dir (* default value: "packages" *)
+        / OpamPackage.Name.to_string p.name
+        / OpamPackage.to_string p
       in
       let acc = (dir, None) :: acc in
       let o, acc =
@@ -587,7 +596,7 @@ let to_files ?(split=false) meta_opams =
   |> List.rev
 
 let main_term root =
-  let run args force tag version dry_run repo target_branch title msg split =
+  let run args force tag version dry_run repo target_branch packages_dir title msg split =
     let dirs, opams, urls, projects, names =
       List.fold_left (fun (dirs, opams, urls, projects, names) -> function
           | `Dir d -> (dirs @ [d], opams, urls, projects, names)
@@ -606,7 +615,7 @@ let main_term root =
     then OpamStd.Sys.exit_because `Aborted;
     let pr_title, pr_body = pull_request_message ?msg meta_opams in
     let pr_title = title +! pr_title in
-    let files = to_files ~split meta_opams in
+    let files = to_files ~split ~packages_dir meta_opams in
     PublishSubmit.submit
       root
       ~dry_run
@@ -617,7 +626,7 @@ let main_term root =
   let open Args in
   Term.(pure run
         $ src_args $ force $ tag $ version $ dry_run
-        $ repo $ target_branch $ title $ msg_file $ split)
+        $ repo $ target_branch $ packages_dir $ title $ msg_file $ split)
 
 
 let main_info =
