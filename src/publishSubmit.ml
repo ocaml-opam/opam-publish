@@ -291,17 +291,6 @@ let update_mirror root repo branch =
   git_command ~dir ["fetch"; "--multiple"; "origin"; "user"];
   git_command ~dir ["reset"; "origin"/branch; "--hard"]
 
-let repo_package_dir repo_dir package =
-  OpamFilename.Op.(
-    repo_dir /
-    "packages" /
-    OpamPackage.Name.to_string (OpamPackage.name package) /
-    OpamPackage.to_string package
-  )
-
-let repo_opam repo_dir package =
-  OpamFilename.Op.(repo_package_dir repo_dir package // "opam")
-
 let add_files_and_pr
     root ?(dry_run=false) repo user token title message
     branch target_branch files =
