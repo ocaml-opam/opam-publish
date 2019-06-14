@@ -275,6 +275,8 @@ end
 
 let init_mirror root repo user token =
   let dir = repo_dir root repo in
+  if OpamFilename.exists_dir dir then
+    OpamFilename.rmdir dir;
   OpamFilename.mkdir dir;
   OpamConsole.msg
     "Cloning the package repository, this may take a while...\n";
@@ -333,7 +335,7 @@ let submit root ?dry_run repo target_branch title msg packages files =
   (* Prepare the repo *)
   let mirror_dir = repo_dir root repo in
   let user, token =
-    if not (OpamFilename.exists_dir mirror_dir) then
+    if not OpamFilename.(exists_dir Op.(mirror_dir / ".git" )) then
       let user, token = GH.get_user_token root repo in
       init_mirror root repo user token;
       user, token
