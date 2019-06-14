@@ -440,7 +440,7 @@ module Args = struct
 
   let packages_dir =
     value & opt string "packages" &
-    info ["packages"] ~docs ~docv:"DIR" ~doc:
+    info ["packages-directory"] ~docs ~docv:"DIR" ~doc:
       "The relative name of the directory (inside the GitHub \
        repository) where package descriptions are stored. For \
        instance, for Coq packages, use \"packages/released\""
