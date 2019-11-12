@@ -34,7 +34,9 @@ let repo_of_dir ?(remote="origin") dir =
     Re.(compile @@
         seq [
           alt [str "git@github.com:";
-               seq [str "http"; opt (char 's'); str "://"]];
+               seq [str "http"; opt (char 's'); str "://github.com/"];
+               str "git://github.com/";
+               str "ssh://git@github.com/"];
           group (rep1 (diff any (char '/')));
           char '/';
           group (non_greedy (rep1 (diff any (char '/'))));
