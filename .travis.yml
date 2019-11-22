@@ -1,12 +1,13 @@
 language: c
 install: wget https://raw.githubusercontent.com/ocaml/ocaml-ci-scripts/master/.travis-docker.sh
-script: bash -ex .travis-docker.sh
+script: travis_wait 50 bash -ex .travis-docker.sh
 services:
   - docker
 sudo: false
 env:
  global:
    - PACKAGE="opam-publish"
+   - EXTRA_ENV="OPAMSOLVERTIMEOUT=600"
    - PRE_INSTALL_HOOK="cd /home/opam/opam-repository && git pull origin master && opam update -u -y"
  matrix:
    - DISTRO=debian-testing OCAML_VERSION=4.05
