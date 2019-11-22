@@ -6,15 +6,18 @@ services:
 sudo: false
 env:
  global:
-   - PACKAGE="publish"
+   - PACKAGE="opam-publish"
    - PRE_INSTALL_HOOK="cd /home/opam/opam-repository && git pull origin master && opam update -u -y"
  matrix:
-   - DISTRO=debian-stable OCAML_VERSION=4.02.3
-   - DISTRO=debian-testing OCAML_VERSION=4.03.0
-   - DISTRO=debian-unstable OCAML_VERSION=4.04.0
-   - DISTRO=ubuntu-12.04 OCAML_VERSION=4.02.3
-   - DISTRO=ubuntu-16.04 OCAML_VERSION=4.04.0
-   - DISTRO=centos-6 OCAML_VERSION=4.04.0
-   - DISTRO=centos-7 OCAML_VERSION=4.03.0
-   - DISTRO=fedora-24 OCAML_VERSION=4.02.3
-   - DISTRO=alpine OCAML_VERSION=4.04.0
+   - DISTRO=debian-testing OCAML_VERSION=4.05
+   - DISTRO=debian-unstable OCAML_VERSION=4.05
+   - DISTRO=ubuntu-16.04 OCAML_VERSION=4.04
+   - DISTRO=ubuntu-18.04 OCAML_VERSION=4.05
+   - DISTRO=centos-7 OCAML_VERSION=4.05
+   - DISTRO=fedora-27 OCAML_VERSION=4.05
+   - DISTRO=fedora-28 OCAML_VERSION=4.06
+   - DISTRO=fedora-29 OCAML_VERSION=4.07
+   - DISTRO=alpine OCAML_VERSION=4.04
+   - DISTRO=alpine OCAML_VERSION=4.05
+   - DISTRO=alpine OCAML_VERSION=4.06
+   - DISTRO=alpine OCAML_VERSION=4.07

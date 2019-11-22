@@ -1,0 +1,9 @@
+(executable
+ (public_name opam-publish)
+ (package opam-publish)
+ (name publishMain)
+ (libraries lwt opam-core opam-format opam-state cohttp github.unix cmdliner))
+
+(rule
+  (targets version.ml)
+  (action (with-stdout-to %{targets} (echo "let version = \"%{version:opam-publish}\""))))
