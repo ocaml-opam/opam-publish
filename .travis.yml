@@ -1,5 +1,5 @@
 language: c
-install: wget https://raw.githubusercontent.com/ocaml/ocaml-travisci-skeleton/master/.travis-docker.sh
+install: wget https://raw.githubusercontent.com/ocaml/ocaml-ci-scripts/master/.travis-docker.sh
 script: bash -ex .travis-docker.sh
 services:
   - docker
@@ -17,7 +17,9 @@ env:
    - DISTRO=fedora-27 OCAML_VERSION=4.05
    - DISTRO=fedora-28 OCAML_VERSION=4.06
    - DISTRO=fedora-29 OCAML_VERSION=4.07
+   - DISTRO=fedora-30 OCAML_VERSION=4.07
+   - DISTRO=fedora-30 OCAML_VERSION=4.08
    - DISTRO=alpine OCAML_VERSION=4.04
    - DISTRO=alpine OCAML_VERSION=4.05
-   - DISTRO=alpine OCAML_VERSION=4.06
    - DISTRO=alpine OCAML_VERSION=4.07
+   - DISTRO=alpine OCAML_VERSION=4.09
