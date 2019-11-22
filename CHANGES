@@ -1,3 +1,9 @@
+2.0.2:
+* git related fixes:
+  * github remote detection
+  * `not a git repository` error
+* New option --packages-directory to indicate where package descriptions are stored
+
 2.0.1:
 * Handle descr, url and files in the rewriting
 * Minor fix
