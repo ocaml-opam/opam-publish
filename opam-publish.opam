@@ -19,7 +19,8 @@ depends: [
   "opam-core" {>= "2.0.0"}
   "opam-format" {>= "2.0.0"}
   "opam-state" {>= "2.0.0"}
-  ("github" {>= "2.0.0" & < "3.0.0"} | "github-unix" {>= "3.0.0"})
+  "github" {>= "2.0.0"}
+  "github-unix"
   ("ssl" {= "0.5.5"} | "tls")
 ]
 flags: plugin
