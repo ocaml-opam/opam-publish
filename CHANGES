@@ -1,4 +1,36 @@
+2.0.2:
+* git related fixes:
+  * github remote detection
+  * `not a git repository` error
+* New option --packages-directory to indicate where package descriptions are stored
+
+2.0.1:
+* Handle descr, url and files in the rewriting
+* Minor fix
+
+2.0.0:
+* Switch default branch from 2.0.0 to master
+* Minor fix
+
+2.0.0~beta:
+* Now based on opam 2 libs and intended for publications in the 2.0 format
+  (inclusive opam files, etc.)
+* Bumped version number to avoid confusion with opam versions
+* Removed the two-step operation ("prepare" and "publish"). A single invocation
+  does all
+* Removed looking up current opam pinnings and repositories for metadata, which
+  was too complex and counter-intuitive. Now opam files are looked up only in
+  the specified directories or archives
+* Multiple publications without added complexity
+* Simplified command-line: URLs, directories, opam files, package names can be
+  specified directly on the command-line, and repeated for multiple
+  publications
+* Allow providing the auth token directly
+
+0.3.5:
+* Support <pkgname>.opam files
 * Add Travis CI tests
+* Support the simultaneous publication of multiple packages from the same repo
 
 0.3.4:
 * Resolve issue with newer version of github 2.2.0

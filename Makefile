@@ -1,19 +1,20 @@
 all: opam-publish
 
-opam-publish: _build/src/opam_publish.native
-	cp $< $@
-
 ALWAYS:
 	@
-_build/src/opam_publish.%: ALWAYS
-	ocamlbuild -use-ocamlfind -pkgs opam-core,opam-format,opam-repository,opam-state,cmdliner,github.unix src/opam_publish.$*
 
-PREFIX ?= $(shell opam config var prefix)
-install:
-	@opam-installer --prefix=$(PREFIX) opam-publish.install
-remove:
-	@opam-installer -u --prefix=$(PREFIX) opam-publish.install
+opam-publish: ALWAYS
+	dune build _build/default/src/publishMain.exe
+	@cp _build/default/src/publishMain.exe $@
 
-clean:
-	ocamlbuild -clean
+build: ALWAYS
+	dune build @install --dev
 
+install: ALWAYS
+	dune install
+
+uninstall: ALWAYS
+	dune uninstall
+
+clean: ALWAYS
+	rm -rf _build opam-publish .merlin
