@@ -196,7 +196,21 @@ let get_metas tmpdir dirs opams urls repos tag names version =
       | _ -> None);
     (function (* name from opam file *)
       | { opam = Some opam; name = None; _ } as m ->
-        OpamFile.OPAM.name_opt (read_opam opam) >>| fun n ->
+        let name_of_opam_file = OpamStd.String.rcut_at (OpamFile.to_string opam) '.' in
+        let name_in_opam_file = OpamFile.OPAM.name_opt (read_opam opam) in
+        begin match name_of_opam_file, name_in_opam_file with
+          | Some (n, "opam"), None -> Some n
+          | Some (n, "opam"), Some n' when String.equal n n' -> Some n
+          | Some (n, "opam"), Some n' ->
+            OpamConsole.error_and_exit `Not_found
+              "The name of the opam file (%s) and its name field (%s) don't match"
+              (OpamPackage.Name.to_string n) (OpamPackage.Name.to_string n')
+          | Some _, Some _ ->
+            assert false (* NOTE: This should not happen as the two patterns
+                            accepted for opam files are "opam" and "<name>.opam" *)
+          | None, Some n -> Some n
+          | None, None -> None
+        end >>| fun n ->
         [{ m with name = Some n }]
       | _ -> None);
     (function (* version from opam file *)
