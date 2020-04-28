@@ -164,7 +164,14 @@ let get_metas tmpdir dirs opams urls repos tag names version =
         tag_of_dir dir >>| fun t -> [{ m with tag = Some t }]
       | _ -> None);
     (function (* Github archive URL from repo and tag *)
-      | { repo = Some repo; tag = Some tag; url = None; _ } as m ->
+      | { repo = Some repo; tag = Some tag; url = None; opam; _ } as m ->
+        let no_url = match opam with
+          | None -> false
+          | Some opam ->
+            List.mem OpamTypes.Pkgflag_Conf
+              OpamFile.OPAM.(flags (safe_read opam))
+        in
+        if no_url then None else
         let u =
           Printf.sprintf "https://github.com/%s/%s/archive/%s.tar.gz"
             (fst repo) (snd repo) tag
@@ -298,7 +305,7 @@ let get_metas tmpdir dirs opams urls repos tag names version =
   let no_url = List.filter (fun m -> m.url = None) metas in
   if no_url <> [] then
     OpamConsole.warning
-      "These will be virtual packages: %s"
+      "These will be virtual or conf packages: %s"
       (OpamStd.List.concat_map ", "
          (fun m -> OpamConsole.colorise `bold (OpamPackage.to_string (package m)))
          no_url);
