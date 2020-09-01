@@ -294,7 +294,7 @@ let update_mirror root repo branch =
   git_command ~dir ["reset"; "origin"/branch; "--hard"]
 
 let add_files_and_pr
-    root ?(dry_run=false) repo user token title message
+    root ?(dry_run=false) ?(open_browser=true) repo user token title message
     branch target_branch files =
   let mirror = repo_dir root repo in
   let () =
@@ -324,6 +324,7 @@ let add_files_and_pr
     GH.pull_request title user token repo ~text:message branch target_branch
   in
   OpamConsole.msg "Pull-requested: %s\n" url;
+  if not open_browser then () else
   try
     let auto_open =
       if OpamStd.Sys.(os () = Darwin) then "open" else "xdg-open"
@@ -331,7 +332,7 @@ let add_files_and_pr
     OpamSystem.command [auto_open; url]
   with OpamSystem.Command_not_found _ -> ()
 
-let submit root ?dry_run repo target_branch title msg packages files =
+let submit root ?dry_run ?open_browser repo target_branch title msg packages files =
   (* Prepare the repo *)
   let mirror_dir = repo_dir root repo in
   let user, token =
@@ -346,4 +347,4 @@ let submit root ?dry_run repo target_branch title msg packages files =
   (* pull-request processing *)
   update_mirror root repo target_branch;
   let branch = user_branch packages in
-  add_files_and_pr root ?dry_run repo user token title msg branch target_branch files
+  add_files_and_pr root ?dry_run ?open_browser repo user token title msg branch target_branch files
