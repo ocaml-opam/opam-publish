@@ -434,10 +434,10 @@ module Args = struct
     info ["n";"dry-run"] ~docs ~doc:
       "Show what would be submitted, but don't file a pull-request"
 
-  let open_browser =
-    value & opt bool true &
-    info ["open-browser"] ~docs ~docv:"BOOL" ~doc:
-      "Open the browser after submitting a pull-request, set to false to disable"
+  let no_browser =
+    value & flag &
+    info ["no-browser"] ~docs ~doc:
+      "Disables opening the browser after submitting a pull-request"
 
   let repo =
     value & opt repo_conv ("ocaml", "opam-repository") &
@@ -608,7 +608,7 @@ let to_files ?(split=false) ~packages_dir meta_opams =
   |> List.rev
 
 let main_term root =
-  let run args force tag version dry_run open_browser repo target_branch packages_dir title msg split =
+  let run args force tag version dry_run no_browser repo target_branch packages_dir title msg split =
     let dirs, opams, urls, projects, names =
       List.fold_left (fun (dirs, opams, urls, projects, names) -> function
           | `Dir d -> (dirs @ [d], opams, urls, projects, names)
@@ -631,14 +631,14 @@ let main_term root =
     PublishSubmit.submit
       root
       ~dry_run
-      ~open_browser
+      ~no_browser
       repo target_branch pr_title pr_body
       (OpamPackage.Map.keys meta_opams)
       files
   in
   let open Args in
   Term.(pure run
-        $ src_args $ force $ tag $ version $ dry_run $ open_browser
+        $ src_args $ force $ tag $ version $ dry_run $ no_browser
         $ repo $ target_branch $ packages_dir $ title $ msg_file $ split)
 
 
