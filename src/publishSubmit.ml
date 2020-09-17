@@ -324,13 +324,14 @@ let add_files_and_pr
     GH.pull_request title user token repo ~text:message branch target_branch
   in
   OpamConsole.msg "Pull-requested: %s\n" url;
-  if no_browser then () else
-  try
-    let auto_open =
-      if OpamStd.Sys.(os () = Darwin) then "open" else "xdg-open"
-    in
-    OpamSystem.command [auto_open; url]
-  with OpamSystem.Command_not_found _ -> ()
+  if not no_browser then begin
+    try
+      let auto_open =
+        if OpamStd.Sys.(os () = Darwin) then "open" else "xdg-open"
+      in
+      OpamSystem.command [auto_open; url]
+    with OpamSystem.Command_not_found _ -> ()
+  end
 
 let submit root ?dry_run ?no_browser repo target_branch title msg packages files =
   (* Prepare the repo *)
