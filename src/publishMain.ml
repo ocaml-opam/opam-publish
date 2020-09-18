@@ -442,7 +442,10 @@ module Args = struct
   let repo =
     value & opt repo_conv ("ocaml", "opam-repository") &
     info ["repo"] ~docs ~docv:"REPO" ~doc:
-      "The package repository to submit to, in the form $(b,owner/name)"
+      "The package repository to submit to, in the form $(b,owner/name).\
+       For repositories with a subdirectory use with $(b,--packages-directory) option.\
+       For example for Coq, use $(i,coq/opam-coq-archive) along with\
+       $(i,--packages-directory=released/packages)."
 
   let target_branch =
     value & opt string "master" &
@@ -455,7 +458,7 @@ module Args = struct
     info ["packages-directory"] ~docs ~docv:"DIR" ~doc:
       "The relative name of the directory (inside the GitHub \
        repository) where package descriptions are stored. For \
-       instance, for Coq packages, use \"packages/released\""
+       instance, for Coq packages, use \"released/packages\"."
 
   let title =
     value & opt (some string) None &
