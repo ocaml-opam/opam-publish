@@ -431,8 +431,9 @@ module Args = struct
     value & opt repo_conv ("ocaml", "opam-repository") &
     info ["repo"] ~docs ~docv:"REPO" ~doc:
       "The package repository to submit to, in the form $(b,owner/name).\
-       For Coq, use \"coq/opam-coq-archive\" along with\
-       \"--packages-directory=released/packages\"."
+       For repositories with a subdirectory use with $(b,--packages-directory) option.\
+       For example for Coq, use $(i,coq/opam-coq-archive) along with\
+       $(i,--packages-directory=released/packages)."
 
   let target_branch =
     value & opt string "master" &
