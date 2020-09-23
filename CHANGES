@@ -1,3 +1,9 @@
+2.0.3:
+* Use newer `github` library, avoiding warning with deprecated authentication method
+* Allow publication of packages without URL (for conf packages)
+* Added flag `--no-browser` to disable browser popup
+* Fix detection of package names when specifying opam file names on the command-line
+
 2.0.2:
 * git related fixes:
   * github remote detection
