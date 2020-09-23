@@ -201,7 +201,7 @@ let get_metas tmpdir dirs opams urls repos tag names version =
         OpamFilename.extract archive srcdir;
         of_dir ~local:false m srcdir
       | _ -> None);
-    (function (* name from opam file *)
+    (function (* name from opam file contents *)
       | { opam = Some opam; name = None; _ } as m ->
         OpamFile.OPAM.name_opt (read_opam opam) >>| fun n ->
         [{ m with name = Some n }]
@@ -210,6 +210,11 @@ let get_metas tmpdir dirs opams urls repos tag names version =
       | { opam = Some opam; version = None; _ } as m ->
         OpamFile.OPAM.version_opt (read_opam opam) >>| fun v ->
         [{ m with version = Some v }]
+      | _ -> None);
+    (function (* name from opam file name *)
+      | { opam = Some opam; dir = Some dir; name = None; _ } as m ->
+        OpamPinned.name_of_opam_filename dir (OpamFile.filename opam) >>| fun n ->
+        [{ m with name = Some n }]
       | _ -> None);
     (function (* name from repo *)
       | { repo = Some (_, rname); name = None; _ } as m ->
