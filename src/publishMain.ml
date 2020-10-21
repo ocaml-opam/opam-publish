@@ -1,6 +1,6 @@
 (**************************************************************************)
 (*                                                                        *)
-(*    Copyright 2014-2017 OCamlPro                                        *)
+(*    Copyright 2014-2020 OCamlPro                                        *)
 (*                                                                        *)
 (*  All rights reserved. This file is distributed under the terms of the  *)
 (*  GNU Lesser General Public License version 2.1, with the special       *)
@@ -439,6 +439,12 @@ module Args = struct
     info ["n";"dry-run"] ~docs ~doc:
       "Show what would be submitted, but don't file a pull-request"
 
+  let output_patch =
+    value & opt (some string) None &
+    info ["o";"output-patch"] ~docs ~doc:
+      "Output a repository patch to the given file, don't do any uploads or \
+       pull-requests"
+
   let no_browser =
     value & flag &
     info ["no-browser"] ~docs ~doc:
@@ -616,7 +622,9 @@ let to_files ?(split=false) ~packages_dir meta_opams =
   |> List.rev
 
 let main_term root =
-  let run args force tag version dry_run no_browser repo target_branch packages_dir title msg split =
+  let run
+      args force tag version dry_run output_patch no_browser repo
+      target_branch packages_dir title msg split =
     let dirs, opams, urls, projects, names =
       List.fold_left (fun (dirs, opams, urls, projects, names) -> function
           | `Dir d -> (dirs @ [d], opams, urls, projects, names)
@@ -630,15 +638,18 @@ let main_term root =
     let meta_opams =
       get_opams force dirs opams urls projects tag names version
     in
-    if not (OpamConsole.confirm
+    if not (output_patch <> None ||
+            OpamConsole.confirm
               "\nContinue ? You will be shown the patch before submitting.")
     then OpamStd.Sys.exit_because `Aborted;
     let pr_title, pr_body = pull_request_message ?msg meta_opams in
     let pr_title = title +! pr_title in
     let files = to_files ~split ~packages_dir meta_opams in
+    let output_patch = OpamStd.Option.map OpamFilename.of_string output_patch in
     PublishSubmit.submit
       root
       ~dry_run
+      ~output_patch
       ~no_browser
       repo target_branch pr_title pr_body
       (OpamPackage.Map.keys meta_opams)
@@ -646,7 +657,7 @@ let main_term root =
   in
   let open Args in
   Term.(pure run
-        $ src_args $ force $ tag $ version $ dry_run $ no_browser
+        $ src_args $ force $ tag $ version $ dry_run $ output_patch $ no_browser
         $ repo $ target_branch $ packages_dir $ title $ msg_file $ split)
 
 
