@@ -67,30 +67,86 @@ module GH = struct
     reset_terminal := None;
     v
 
-  let get_user_token () =
-    OpamConsole.msg
-      "In order to continue, you will be required to provide your GitHub \
-       username and your personal access token.\n\
-       You can manage your personal access token at \
-       https://github.com/settings/tokens\n\
-       Note: your GitHub password will not work, only a personal access token \
-       correctly authenticates you.\n\n";
-    let user =
-      let rec get_u () =
-        match OpamConsole.read "Please enter your Github name:" with
-        | Some u -> u
-        | None -> get_u ()
-      in
-      get_u ()
+  let get_user token = Lwt_main.run @@ Monad.(
+    Lwt.catch (fun () -> run (
+      User.current_info ~token ()
+      >>~ fun u -> return (Some u.Github_t.user_info_login)
+    )) (function
+      | Message (`Unauthorized, _) -> Lwt.return None
+      | exn -> Lwt.fail exn
+    )
+  )
+
+  let rec get_user_token root (repo_owner, repo_name) =
+    let tok_file =
+      OpamFilename.Op.(root // (repo_owner ^ "%" ^ repo_name ^ ".token"))
     in
+    let exists = OpamFilename.exists tok_file in
+    let exists = (* Restore token from previous versions *)
+      exists ||
+      match
+        List.filter (OpamFilename.ends_with ".token") (OpamFilename.files root)
+      with
+      | [f] when
+          not (OpamStd.String.contains_char
+                 (OpamFilename.(Base.to_string (basename f))) '%') ->
+        OpamFilename.move ~src:f ~dst:tok_file; true
+      | _ -> false
+    in
+    if exists then
+      let token = Token.of_string (OpamFilename.read tok_file) in
+      match get_user token with
+      | Some u -> u, token
+      | None ->
+        OpamConsole.msg "\nExisting Github token is no longer valid (%s).\n"
+          (OpamFilename.prettify tok_file);
+        OpamFilename.remove tok_file;
+        get_user_token root (repo_owner, repo_name)
+    else
     let token =
-      let rec get_pass () =
-        match OpamConsole.read "%s personal access token:" user with
-        | Some p -> p
-        | None -> get_pass ()
+      OpamConsole.msg
+        "In order to continue, you will be required to provide your GitHub \
+         personal access token. This personal acces token requires the \
+         \"public_repo\" scope (or \"repo\" if you submit to a private \
+         repository).\n\
+         You can manage your personal access token at \
+         https://github.com/settings/tokens\n\
+         Note: your GitHub password will not work, only a personal access token \
+         can authenticates you.\n\n";
+      let token =
+        let rec get_pass () =
+          match
+            OpamConsole.read "Please enter your GitHub personal access token:"
+          with
+          | Some p -> p
+          | None -> get_pass ()
+        in
+        let input = no_stdin_echo get_pass in
+        Token.of_string (OpamStd.String.strip input)
       in
-      Token.of_string (no_stdin_echo get_pass)
+      token
     in
+    let user, token =
+      match get_user token with
+      | Some u -> u, token
+      | None ->
+        OpamConsole.msg "Sorry, this token does not appear to be valid.\n";
+        get_user_token root (repo_owner, repo_name)
+    in
+    OpamConsole.msg
+      "The token will be stored in %s.\n"
+      (OpamFilename.prettify tok_file);
+    let tok_file = OpamFilename.to_string tok_file in
+    OpamFilename.mkdir root;
+    let tok_fd = Unix.(openfile tok_file [O_CREAT; O_TRUNC; O_WRONLY] 0o600) in
+    let tok_oc = Unix.out_channel_of_descr tok_fd in
+    output_string tok_oc (Token.to_string token);
+    close_out tok_oc;
+    let { Unix.st_perm; _ } = Unix.stat tok_file in
+    let safe_perm = 0o7770 land st_perm in
+    begin if safe_perm <> st_perm
+      then Unix.chmod tok_file safe_perm
+    end;
     user, token
 
   let fork token repo =
@@ -228,11 +284,11 @@ let submit root ?dry_run ?no_browser repo target_branch title msg packages files
   let mirror_dir = repo_dir root repo in
   let user, token =
     if not OpamFilename.(exists_dir Op.(mirror_dir / ".git" )) then
-      let user, token = GH.get_user_token () in
+      let user, token = GH.get_user_token root repo in
       init_mirror root repo user token;
       user, token
     else
-    let user, token = GH.get_user_token () in
+    let user, token = GH.get_user_token root repo in
     user, token
   in
   (* pull-request processing *)
