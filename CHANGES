@@ -1,4 +1,5 @@
 2.0.3:
+* Drop Github token generation feature, no longer supported by Github API.
 * Use newer `github` library, avoiding warning with deprecated authentication method
 * Allow publication of packages without URL (for conf packages)
 * Added flag `--no-browser` to disable browser popup
