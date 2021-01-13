@@ -67,21 +67,6 @@ module GH = struct
     reset_terminal := None;
     v
 
-  let recent_otp = ref None
-  let complete_2fa user c =
-    let rec try_again f = Monad.(f () >>~ function
-    | Result auths -> return auths
-    | Two_factor _ when !recent_otp <> None ->
-      recent_otp := None;
-      try_again f
-    | Two_factor mode ->
-      let otp = OpamConsole.read "%s 2FA code from '%s':" user mode in
-      recent_otp := otp;
-      try_again (c ?otp)
-    ) in
-    let otp = !recent_otp in
-    try_again (c ?otp)
-
   let get_user token = Lwt_main.run @@ Monad.(
     Lwt.catch (fun () -> run (
       User.current_info ~token ()
@@ -118,78 +103,35 @@ module GH = struct
         OpamFilename.remove tok_file;
         get_user_token root (repo_owner, repo_name)
     else
-    let user, token =
-      if
-        OpamConsole.confirm
-          "No Github token found. Should I generate one ?\n\
-           (your credentials will be required. If you do not have a Github \
-           account, you can create one at https://github.com/join)"
-      then
-        let hostname = Unix.gethostname () in
-        let token_note = token_note hostname in
-        OpamConsole.msg
-          "The obtained token will be stored in %s.\n\
-           Your active tokens can be seen and revoked at \
-           https://github.com/settings/tokens\n\n"
-          (OpamFilename.prettify tok_file);
-        let user =
-          let rec get_u () =
-            match OpamConsole.read "Please enter your Github name:" with
-            | Some u -> u
-            | None -> get_u ()
-          in
-          get_u ()
+    let token =
+      OpamConsole.msg
+        "Please generate a Github token at \
+         https://github.com/settings/tokens/new to allow access.\n\
+         The \"public_repo\" scope is required (\"repo\" if submitting to a \
+         private opam repository).\n\n";
+      let token =
+        let rec get_pass () =
+          match
+            OpamConsole.read "Please enter your GitHub personal access token:"
+          with
+          | Some p -> p
+          | None -> get_pass ()
         in
-        let pass =
-          let rec get_pass () =
-            match OpamConsole.read "%s password:" user with
-            | Some p -> p
-            | None -> get_pass ()
-          in
-          no_stdin_echo get_pass
-        in
-        let open Github.Monad in
-        let create_token () =
-          complete_2fa user
-            (fun ?otp () ->
-               Token.create ~scopes:[`Public_repo] ~user ~pass ~note:token_note
-                 ?otp ())
-        in
-        Lwt_main.run @@ Monad.run @@
-        (complete_2fa user (Token.get_all ~user ~pass)
-         >>= fun auths ->
-         (try
-            let auth = List.find (fun a ->
-                a.Github_t.auth_note = Some token_note)
-                auths
-            in
-            OpamConsole.msg "Remote token for %s already exists. Resetting.\n\n"
-              hostname;
-            complete_2fa user
-              (Token.delete ~user ~pass ~id:auth.Github_t.auth_id)
-            >>= fun () ->
-            create_token ()
-          with Not_found -> create_token ())
-         >>= fun auth ->
-         (user, Token.of_auth auth) |> Monad.return)
-      else
-      match
-        OpamConsole.read
-          "Ok, then please generate a token from \
-           https://github.com/settings/tokens\n\
-           It needs access to the 'public_repo' scope ('repo' if you submit to \
-           a private repository).\n\
-           Auth token:"
-      with
-      | None -> OpamStd.Sys.exit_because `Aborted
-      | Some stok ->
-        let tok = Token.of_string (OpamStd.String.strip stok) in
-        match get_user tok with
-        | Some u -> u, tok
-        | None ->
-          OpamConsole.msg "Sorry, this token does not appear to be valid.\n";
-          get_user_token root (repo_owner, repo_name)
+        let input = no_stdin_echo get_pass in
+        Token.of_string (OpamStd.String.strip input)
+      in
+      token
     in
+    let user, token =
+      match get_user token with
+      | Some u -> u, token
+      | None ->
+        OpamConsole.msg "Sorry, this token does not appear to be valid.\n";
+        get_user_token root (repo_owner, repo_name)
+    in
+    OpamConsole.msg
+      "The token will be stored in %s.\n"
+      (OpamFilename.prettify tok_file);
     let tok_file = OpamFilename.to_string tok_file in
     OpamFilename.mkdir root;
     let tok_fd = Unix.(openfile tok_file [O_CREAT; O_TRUNC; O_WRONLY] 0o600) in
