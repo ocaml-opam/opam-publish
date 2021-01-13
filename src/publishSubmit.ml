@@ -105,14 +105,10 @@ module GH = struct
     else
     let token =
       OpamConsole.msg
-        "In order to continue, you will be required to provide your GitHub \
-         personal access token. This personal acces token requires the \
-         \"public_repo\" scope (or \"repo\" if you submit to a private \
-         repository).\n\
-         You can manage your personal access token at \
-         https://github.com/settings/tokens\n\
-         Note: your GitHub password will not work, only a personal access token \
-         can authenticates you.\n\n";
+        "Please generate a Github token at \
+         https://github.com/settings/tokens/new to allow access.\n\
+         The \"public_repo\" scope is required (\"repo\" if submitting to a \
+         private opam repository).\n\n";
       let token =
         let rec get_pass () =
           match
