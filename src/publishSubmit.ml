@@ -236,7 +236,7 @@ let update_mirror root repo branch =
   git_command ~dir ["reset"; "origin"/branch; "--hard"]
 
 let add_files_and_pr
-    root ?(dry_run=false) ?(no_browser=false) repo user token title message
+    root ~dry_run ~output_patch ~no_browser repo user token title message
     branch target_branch files =
   let mirror = repo_dir root repo in
   let () =
@@ -255,11 +255,25 @@ let add_files_and_pr
       files;
     git_command ~dir:mirror
       ["commit"; "-m"; title];
-    git_command ~dir:mirror
-      ["push"; "user"; "+HEAD:"^branch]
+    if not dry_run then
+      git_command ~dir:mirror
+        ["push"; "user"; "+HEAD:"^branch]
   in
-  OpamFilename.in_dir mirror (fun () -> ignore (Sys.command "git show HEAD"));
-  if dry_run then OpamStd.Sys.exit_because `Success;
+  begin match output_patch with
+    | None ->
+      OpamFilename.in_dir mirror (fun () -> ignore (Sys.command "git show HEAD"))
+    | Some out ->
+      OpamFilename.in_dir mirror @@ fun () ->
+      let cmd =
+        Printf.sprintf "git format-patch HEAD^ --stdout > %S"
+          (OpamFilename.to_string out)
+      in
+      ignore (Sys.command cmd);
+      OpamConsole.msg
+        "Patch file to be applied on %s/%s was written to %S\n"
+        (fst repo) (snd repo) (OpamFilename.to_string out)
+  end;
+  if output_patch <> None || dry_run then OpamStd.Sys.exit_because `Success;
   if not (OpamConsole.confirm "\nFile a pull-request for this patch ?") then
     OpamStd.Sys.exit_because `Aborted;
   let url =
@@ -275,7 +289,9 @@ let add_files_and_pr
     with OpamSystem.Command_not_found _ -> ()
   end
 
-let submit root ?dry_run ?no_browser repo target_branch title msg packages files =
+let submit
+    root ~dry_run ~output_patch ~no_browser
+    repo target_branch title msg packages files =
   (* Prepare the repo *)
   let mirror_dir = repo_dir root repo in
   let user, token =
@@ -290,4 +306,5 @@ let submit root ?dry_run ?no_browser repo target_branch title msg packages files
   (* pull-request processing *)
   update_mirror root repo target_branch;
   let branch = user_branch packages in
-  add_files_and_pr root ?dry_run ?no_browser repo user token title msg branch target_branch files
+  add_files_and_pr root ~dry_run ~output_patch ~no_browser
+    repo user token title msg branch target_branch files
