@@ -716,7 +716,7 @@ let () =
   OpamSystem.init ();
   let opam_root = OpamStateConfig.opamroot () in
   OpamFormatConfig.init ();
-  OpamStd.Config.init ();
+  OpamCoreConfig.init ();
   OpamStateConfig.init ~root_dir:opam_root ();
   let publish_root = OpamFilename.Op.(opam_root / "plugins" / "opam-publish") in
   try
