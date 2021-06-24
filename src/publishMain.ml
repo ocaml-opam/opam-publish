@@ -80,7 +80,7 @@ let upgrade_to_2_0 ?(local=true) opam0 =
         ["descr";"url"];
     ) (OpamFile.OPAM.read_opt opam0)
 
-let get_metas tmpdir dirs opams urls repos tag names version =
+let get_metas force tmpdir dirs opams urls repos tag names version =
   let lopt = function [x] -> Some x | _ -> None in
   let base_meta = {
     archive = None;
@@ -183,8 +183,17 @@ let get_metas tmpdir dirs opams urls repos tag names version =
       | { url = Some url; archive = None; checksum = None; _ } as m ->
         let f = tmp_archive tmpdir url in
         if not (OpamFilename.exists f) then
-          OpamProcess.Job.run
-            (OpamDownload.download_as ~overwrite:false url f);
+          (try
+             OpamProcess.Job.run
+               (OpamDownload.download_as ~overwrite:false url f)
+           with OpamDownload.Download_fail (msgopt, _) ->
+             OpamConsole.error_and_exit `Sync_error
+               "Could not download archive at %s%s.\n- make sure %s"
+               (OpamConsole.colorise `underline (OpamUrl.to_string url))
+               (OpamStd.Option.to_string (Printf.sprintf " (%s)") msgopt)
+               (match m.repo with
+                | Some _ -> "you have pushed your tag to Github."
+                | None -> "your archive is uploaded and accessible."));
         Some [{ m with archive = Some f }]
       | _ -> None);
     (function (* checksum from archive *)
@@ -267,7 +276,13 @@ let get_metas tmpdir dirs opams urls repos tag names version =
       metas
   in
   let is_incomplete =
-    List.exists (fun m -> m.opam = None || m.name = None || m.version = None)
+    List.exists (fun m ->
+        m.opam = None || m.name = None || m.version = None ||
+        m.url = None && match m.opam with
+        | Some o ->
+          not force &&
+          not OpamFile.OPAM.(has_flag OpamTypes.Pkgflag_Conf (safe_read o))
+        | None -> true)
       metas
   in
   (if is_incomplete then
@@ -277,7 +292,8 @@ let get_metas tmpdir dirs opams urls repos tag names version =
    else
      OpamConsole.msg "\nThe following will be published:\n%s\n") @@
   OpamStd.Format.itemize (fun m ->
-      Printf.sprintf "%s version %s with opam file %s%s"
+      Printf.sprintf "%s version %s with opam file %s\n\
+                      archive at %s"
         (OpamStd.Option.to_string ~none:(OpamConsole.colorise `red "UNKNOWN")
            (OpamConsole.colorise `bold @* OpamPackage.Name.to_string)
            m.name)
@@ -293,11 +309,12 @@ let get_metas tmpdir dirs opams urls repos tag names version =
            "from the upstream archive"
          | { opam = Some o; _ } ->
            "at " ^ OpamConsole.colorise `bold (OpamFile.to_string o))
-        (OpamStd.Option.to_string  ~none:""
-           (Printf.sprintf "\narchive at %s" @*
-            OpamConsole.colorise `bold @*
-            OpamUrl.to_string)
-           m.url))
+        (match m.url with
+         | None ->
+           OpamConsole.colorise `red "NONE FOUND"
+         | Some u ->
+           OpamConsole.colorise `bold @@
+           OpamUrl.to_string u))
     metas;
   if is_incomplete then OpamStd.Sys.exit_because `Not_found;
   let rec has_dups = function
@@ -343,7 +360,7 @@ let get_opam ?(force=false) meta =
 let get_opams force dirs opams urls repos tag names version =
   List.iter upgrade_to_2_0 opams;
   OpamFilename.with_tmp_dir @@ fun tmpdir ->
-  get_metas tmpdir dirs opams urls repos tag names version |>
+  get_metas force tmpdir dirs opams urls repos tag names version |>
   List.map (fun m -> package m, (m, get_opam ~force m)) |>
   OpamPackage.Map.of_list |>
   OpamPackage.Map.map
@@ -640,7 +657,8 @@ let main_term root =
     in
     if not (output_patch <> None ||
             OpamConsole.confirm
-              "\nContinue ? You will be shown the patch before submitting.")
+              "\nYou will be shown the patch before submitting.\n\
+               Please confirm the above data. Continue ? ")
     then OpamStd.Sys.exit_because `Aborted;
     let pr_title, pr_body = pull_request_message ?msg meta_opams in
     let pr_title = title +! pr_title in
