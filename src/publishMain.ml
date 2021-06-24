@@ -657,7 +657,8 @@ let main_term root =
     in
     if not (output_patch <> None ||
             OpamConsole.confirm
-              "\nContinue ? You will be shown the patch before submitting.")
+              "\nYou will be shown the patch before submitting.\n\
+               Please confirm the above data. Continue ? ")
     then OpamStd.Sys.exit_because `Aborted;
     let pr_title, pr_body = pull_request_message ?msg meta_opams in
     let pr_title = title +! pr_title in
