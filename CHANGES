@@ -1,3 +1,9 @@
+2.1.0:
+* Added an '--output-patch' option to allow use without a Github account
+* Use the latest opam libraries (2.1.0~rc) with better format-preserving printing
+* Avoid submission of packages without a reachable archive, except if `--force`
+  was set or they are `conf` packages
+
 2.0.3:
 * Drop Github token generation feature, no longer supported by Github API.
 * Use newer `github` library, avoiding warning with deprecated authentication method
