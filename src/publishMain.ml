@@ -183,8 +183,17 @@ let get_metas force tmpdir dirs opams urls repos tag names version =
       | { url = Some url; archive = None; checksum = None; _ } as m ->
         let f = tmp_archive tmpdir url in
         if not (OpamFilename.exists f) then
-          OpamProcess.Job.run
-            (OpamDownload.download_as ~overwrite:false url f);
+          (try
+             OpamProcess.Job.run
+               (OpamDownload.download_as ~overwrite:false url f)
+           with OpamDownload.Download_fail (msgopt, _) ->
+             OpamConsole.error_and_exit `Sync_error
+               "Could not download archive at %s%s.\n- make sure %s"
+               (OpamConsole.colorise `underline (OpamUrl.to_string url))
+               (OpamStd.Option.to_string (Printf.sprintf " (%s)") msgopt)
+               (match m.repo with
+                | Some _ -> "you have pushed your tag to Github."
+                | None -> "your archive is uploaded and accessible."));
         Some [{ m with archive = Some f }]
       | _ -> None);
     (function (* checksum from archive *)
