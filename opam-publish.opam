@@ -12,16 +12,18 @@ license: "LGPL-2.1-only WITH OCaml-LGPL-linking-exception"
 dev-repo: "git+https://github.com/ocaml/opam-publish.git"
 build: [ "dune" "build" "-p" name "-j" jobs ]
 depends: [
-  "cmdliner"
+  "cmdliner" {>= "1.0.0"}
   "dune" {>= "1.0"}
   "lwt_ssl"
   "ocaml" {>= "4.03.0"}
   "opam-core" {>= "2.1.0~rc"}
   "opam-format" {>= "2.1.0~rc"}
   "opam-state" {>= "2.1.0~rc"}
-  "github" {>= "2.0.0" & < "4.3.0" | >= "4.3.2"}
-  "github-unix" {>= "2.0.0" & < "4.3.0" | >= "4.3.2"}
-  ("ssl" {= "0.5.5"} | "tls")
+  "github" {>= "4.3.2"}
+  "github-unix" {>= "4.3.2"}
+]
+conflicts: [
+  "ssl" {= "0.5.6"}
 ]
 flags: plugin
 synopsis: "A tool to ease contributions to opam repositories"
