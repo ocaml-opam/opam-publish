@@ -563,12 +563,12 @@ let pull_request_message ?msg meta_opams =
       match identical OpamFile.OPAM.synopsis opams_l with
       | Some (Some s) ->
         Printf.sprintf "%s\n\nThis pull-request concerns:\n%s\n" s
-          (OpamStd.Format.itemize ~bullet:"-"
+          (OpamStd.Format.itemize ~bullet:"- "
              (fun (nv, _) -> Printf.sprintf "`%s`" (OpamPackage.to_string nv))
              ps)
       | _ ->
         Printf.sprintf "This pull-request concerns:\n%s\n"
-          (OpamStd.Format.itemize ~bullet:"-"
+          (OpamStd.Format.itemize ~bullet:"- "
              (fun (nv, o) ->
                 match OpamFile.OPAM.synopsis o with
                 | Some s ->
