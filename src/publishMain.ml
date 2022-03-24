@@ -674,13 +674,13 @@ let main_term root =
       files
   in
   let open Args in
-  Term.(pure run
+  Term.(const run
         $ src_args $ force $ tag $ version $ dry_run $ output_patch $ no_browser
         $ repo $ target_branch $ packages_dir $ title $ msg_file $ split)
 
 
 let main_info =
-  Term.info "opam-publish"
+  Cmd.info "opam-publish"
     ~version:Version.version
     ~doc:"Helper for package publications on opam repositories"
     ~man:[
@@ -737,11 +737,11 @@ let () =
   OpamCoreConfig.init ();
   OpamStateConfig.init ~root_dir:opam_root ();
   let publish_root = OpamFilename.Op.(opam_root / "plugins" / "opam-publish") in
-  let main_command = (main_term publish_root, main_info) in
+  let main_command = Cmd.v main_info (main_term publish_root) in
   try
-    match Term.eval ~catch:false main_command with
-    | `Ok () | `Version | `Help -> OpamStd.Sys.exit_because `Success
-    | `Error _ -> OpamStd.Sys.exit_because `Bad_arguments
+    match Cmd.eval_value ~catch:false main_command with
+    | Ok (`Ok () | `Version | `Help) -> OpamStd.Sys.exit_because `Success
+    | Error _ -> OpamStd.Sys.exit_because `Bad_arguments
   with
   | OpamStd.Sys.Exit i -> exit i
   | Failure e ->
