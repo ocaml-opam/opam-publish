@@ -173,7 +173,7 @@ let get_metas force tmpdir dirs opams urls repos tag names version =
         in
         if no_url then None else
         let u =
-          Printf.sprintf "https://github.com/%s/%s/archive/%s.tar.gz"
+          Printf.sprintf "https://github.com/%s/%s/archive/refs/tags/%s.tar.gz"
             (fst repo) (snd repo) tag
         in
         Some [{ m with url = Some (OpamUrl.of_string u) }]
