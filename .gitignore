@@ -1,4 +1,5 @@
 /_build
+_opam/
 /opam-publish
 .merlin
 /opam-publish.install
