@@ -44,7 +44,12 @@ let repo_of_dir ?(remote="origin") dir =
           eos;
         ])
   in
-  git_query ~dir ["config"; "--get"; "remote."^remote^".url"] >>=
+  (* Use --get-all instead of --get to handle the setup that pushes commits
+     to multiple remote repositories but only fetches commits from the main
+     GitHub repository. For this kind of setups, the first remote repo should
+     be the main repo; using --get will return the last remote repo, which
+     is not we are looking for. *)
+  git_query ~dir ["config"; "--get-all"; "remote."^remote^".url"] >>=
   Re.exec_opt gh_re >>= fun g ->
   Some (Re.Group.get g 1, Re.Group.get g 2)
 
