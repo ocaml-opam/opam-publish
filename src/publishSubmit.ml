@@ -229,11 +229,19 @@ let init_mirror root repo user token =
   GH.fork token repo;
   git_command ~dir ["remote"; "add"; "user"; github_root^user/(snd repo)]
 
-let update_mirror root repo branch =
+let update_mirror root repo ~user ~token branch =
   let dir = repo_dir root repo in
   OpamConsole.msg "Fetching the package repository, this may take a while...\n";
-  git_command ~dir ["fetch"; "--multiple"; "origin"; "user"];
-  git_command ~dir ["reset"; "origin"/branch; "--hard"]
+  let aux () =
+    git_command ~dir ["fetch"; "--multiple"; "origin"; "user"];
+    git_command ~dir ["reset"; "origin"/branch; "--hard"];
+  in
+  try
+    aux ()
+  with OpamSystem.Process_error _ ->
+    OpamConsole.msg "Command failed. Trying one more time on a clean slate...\n";
+    init_mirror root repo user token;
+    aux ()
 
 let add_files_and_pr
     root ~dry_run ~output_patch ~no_browser repo user token title message
@@ -304,7 +312,7 @@ let submit
     user, token
   in
   (* pull-request processing *)
-  update_mirror root repo target_branch;
+  update_mirror root repo ~user ~token target_branch;
   let branch = user_branch packages in
   add_files_and_pr root ~dry_run ~output_patch ~no_browser
     repo user token title msg branch target_branch files
