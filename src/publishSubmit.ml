@@ -27,14 +27,17 @@ type github_repo = string * string (* owner, name *)
 let repo_dir root (repo_owner, repo_name) =
   OpamFilename.Op.(root / "repos" / (repo_owner ^ "%" ^ repo_name))
 
-let print_package_list sep = function
-  | nv::r as packages when
-      List.for_all (fun p -> OpamPackage.version p = OpamPackage.version nv) r
-    ->
-    String.concat sep (List.map OpamPackage.name_to_string packages) ^ "." ^
-    OpamPackage.version_to_string nv
-  | packages ->
-    String.concat sep (List.map OpamPackage.to_string packages)
+let print_package_list sep packages =
+  let packages =
+    (* Order from smallest package name to largest *)
+    List.sort OpamPackage.compare packages |>
+    (* Then eliminate the packages that have the same version leaving only the smallest names *)
+    List.sort_uniq (fun p1 p2 ->
+        let v1 = OpamPackage.Version.to_string (OpamPackage.version p1) in
+        let v2 = OpamPackage.Version.to_string (OpamPackage.version p2) in
+        String.compare v1 v2)
+  in
+  String.concat sep (List.map OpamPackage.to_string packages)
 
 let user_branch packages =
   String.map (function
