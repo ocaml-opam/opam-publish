@@ -416,7 +416,11 @@ module Args = struct
            (OpamUrl.local_dir u >>| fun d -> `Dir d)
            >>+ fun () ->
            (OpamUrl.local_file u >>| fun f ->
-            `Opam (OpamFile.make f: OpamFile.OPAM.t OpamFile.t))
+            let basename = OpamFilename.basename f in
+            if OpamFilename.Base.check_suffix basename ".opam" ||
+               OpamFilename.Base.to_string basename = "opam"
+            then `Opam (OpamFile.make f: OpamFile.OPAM.t OpamFile.t)
+            else failwith "This is neither a URL to a tarball or an opam file")
            >>+ fun () ->
            (match OpamStd.String.split s '/' with
             | [pkg] ->
