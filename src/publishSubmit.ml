@@ -20,7 +20,7 @@ let () =
 
 let (/) a b = String.concat "/" [a;b]
 
-let github_root = "git@github.com:"
+let github_root ~token = Github.Token.to_string token^"@github.com:"
 
 type github_repo = string * string (* owner, name *)
 
@@ -227,10 +227,10 @@ let init_mirror root repo user token =
     "Cloning the package repository, this may take a while...\n";
   git_command ~verbose:true
     ["clone";
-     github_root^(fst repo)/(snd repo)^".git";
+     github_root ~token^(fst repo)/(snd repo)^".git";
      OpamFilename.Dir.to_string dir];
   GH.fork token repo;
-  git_command ~dir ["remote"; "add"; "user"; github_root^user/(snd repo)]
+  git_command ~dir ["remote"; "add"; "user"; github_root ~token^user/(snd repo)]
 
 let update_mirror root repo ~user ~token branch =
   let dir = repo_dir root repo in
