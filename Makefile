@@ -1,14 +1,11 @@
-all: opam-publish
+all: build
 
 ALWAYS:
 	@
 
-opam-publish: ALWAYS
-	dune build _build/default/src/publishMain.exe
-	@cp _build/default/src/publishMain.exe $@
-
 build: ALWAYS
-	dune build @install --dev
+	dune build @install
+	cp _build/default/src/publishMain.exe ./opam-publish
 
 install: ALWAYS
 	dune install
