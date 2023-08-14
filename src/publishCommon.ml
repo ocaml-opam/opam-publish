@@ -15,14 +15,14 @@ open OpamProcess.Job.Op
 let git_command ?dir ?(verbose=false) args =
   let dir = dir >>| OpamFilename.Dir.to_string in
   OpamProcess.Job.run @@
-  OpamSystem.make_command ~verbose ?dir "git" args @@> fun r ->
+  OpamSystem.make_command ~verbose ~allow_stdin:true ?dir "git" args @@> fun r ->
   OpamSystem.raise_on_process_error r;
   Done ()
 
 let git_query ?dir args =
   let dir = dir >>| OpamFilename.Dir.to_string in
   OpamProcess.Job.run @@
-  OpamSystem.make_command ~verbose:false ?dir "git" args @@> fun r ->
+  OpamSystem.make_command ~verbose:false ~allow_stdin:true ?dir "git" args @@> fun r ->
   if OpamProcess.is_success r then
     match r.OpamProcess.r_stdout with
     | r :: _ -> Done (Some r)
