@@ -515,6 +515,10 @@ module Args = struct
        and `descr`). This can be useful on legacy repositories, but is \
        deprecated."
 
+  let no_confirmation =
+    value & flag &
+    info ["no-confirmation"] ~docs ~doc:
+      "Skip all confirmations. This should only ever be used in very special circumstances, like automated publishing CI workflows where measures to ensure the submission has been reviewed have already taken place."
 end
 
 let identical f = function
@@ -650,7 +654,7 @@ let to_files ?(split=false) ~packages_dir meta_opams =
 let main_term root =
   let run
       args force tag version dry_run output_patch no_browser repo
-      target_branch packages_dir title msg split =
+      target_branch packages_dir title msg split no_confirmation =
     let dirs, opams, urls, projects, names =
       List.fold_left (fun (dirs, opams, urls, projects, names) -> function
           | `Dir d -> (dirs @ [d], opams, urls, projects, names)
@@ -661,6 +665,13 @@ let main_term root =
         ([], [], [], [], [])
         args
     in
+    if no_confirmation then
+      if OpamStd.Sys.tty_in then
+        OpamConsole.error_and_exit `Bad_arguments
+          "'--no-confirmation' is not allowed in interactive mode. Please \
+           review before submitting"
+      else
+        OpamCoreConfig.update ~confirm_level:`unsafe_yes ();
     let meta_opams =
       get_opams force dirs opams urls projects tag names version
     in
@@ -685,7 +696,8 @@ let main_term root =
   let open Args in
   Term.(const run
         $ src_args $ force $ tag $ version $ dry_run $ output_patch $ no_browser
-        $ repo $ target_branch $ packages_dir $ title $ msg_file $ split)
+        $ repo $ target_branch $ packages_dir $ title $ msg_file $ split
+        $ no_confirmation)
 
 
 let main_info =

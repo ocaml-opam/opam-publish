@@ -285,7 +285,8 @@ let add_files_and_pr
         (fst repo) (snd repo) (OpamFilename.to_string out)
   end;
   if output_patch <> None || dry_run then OpamStd.Sys.exit_because `Success;
-  if not (OpamConsole.confirm "\nFile a pull-request for this patch ?") then
+  if not (OpamConsole.confirm ~require_unsafe_yes:true
+            "\nFile a pull-request for this patch ?") then
     OpamStd.Sys.exit_because `Aborted;
   let url =
     GH.pull_request title user token repo ~text:message branch target_branch
