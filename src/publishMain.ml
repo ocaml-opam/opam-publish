@@ -52,33 +52,38 @@ let tmp_source tmpdir url =
                      (OpamUrl.basename url))
 
 let upgrade_to_2_0 ?(local=true) opam0 =
-  OpamStd.Option.iter (fun opam ->
-      let opam =
-        OpamFileTools.add_aux_files ~dir:(OpamFilename.dirname (OpamFile.filename opam0))
-          ~files_subdir_hashes:true opam
-      in
-      let opam2 = OpamFormatUpgrade.opam_file ~filename:opam0 opam in
-      if not (OpamFile.OPAM.equal opam2 opam) then
-        (OpamConsole.warning "%s has %s format, \
-                              which is not accepted on 2.0 repository.%s"
-           (if local then
-              "Opam file " ^ OpamFilename.to_string (OpamFile.filename opam0)
-            else "Downloaded opam file")
-           (OpamConsole.colorise `underline
-              (OpamVersion.to_string (OpamFile.OPAM.opam_version opam)))
-           (if not local then
-              OpamConsole.colorise `bold " Updating it."
-            else "");
-         if local &&
-            not (OpamConsole.confirm " Update it inplace to %s format?"
-                   (OpamConsole.colorise `bold "2.0"))
-         then OpamStd.Sys.exit_because `Aborted;
-         OpamFile.OPAM.write_with_preserved_format ~format_from:opam0 opam0 opam2);
-      List.iter
-        OpamFilename.(fun name ->
-            remove Op.(dirname (OpamFile.filename opam0) // name))
-        ["descr";"url"];
-    ) (OpamFile.OPAM.read_opt opam0)
+  try
+    OpamStd.Option.iter (fun opam ->
+        let opam =
+          OpamFileTools.add_aux_files ~dir:(OpamFilename.dirname (OpamFile.filename opam0))
+            ~files_subdir_hashes:true opam
+        in
+        let opam2 = OpamFormatUpgrade.opam_file ~filename:opam0 opam in
+        if not (OpamFile.OPAM.equal opam2 opam) then
+          (OpamConsole.warning "%s has %s format, \
+                                which is not accepted on 2.0 repository.%s"
+             (if local then
+                "Opam file " ^ OpamFilename.to_string (OpamFile.filename opam0)
+              else "Downloaded opam file")
+             (OpamConsole.colorise `underline
+                (OpamVersion.to_string (OpamFile.OPAM.opam_version opam)))
+             (if not local then
+                OpamConsole.colorise `bold " Updating it."
+              else "");
+           if local &&
+              not (OpamConsole.confirm " Update it inplace to %s format?"
+                     (OpamConsole.colorise `bold "2.0"))
+           then OpamStd.Sys.exit_because `Aborted;
+           OpamFile.OPAM.write_with_preserved_format ~format_from:opam0 opam0 opam2);
+        List.iter
+          OpamFilename.(fun name ->
+              remove Op.(dirname (OpamFile.filename opam0) // name))
+          ["descr";"url"];
+      ) (OpamFile.OPAM.read_opt opam0)
+  with OpamPp.Bad_format _ | OpamPp.Bad_version _ ->
+    OpamConsole.error_and_exit `Bad_arguments
+      "Could not parse the file %S as an opam file"
+      (OpamFile.to_string opam0)
 
 let get_metas force tmpdir dirs opams urls repos tag names version =
   let lopt = function [x] -> Some x | _ -> None in
@@ -411,7 +416,11 @@ module Args = struct
            (OpamUrl.local_dir u >>| fun d -> `Dir d)
            >>+ fun () ->
            (OpamUrl.local_file u >>| fun f ->
-            `Opam (OpamFile.make f: OpamFile.OPAM.t OpamFile.t))
+            let basename = OpamFilename.basename f in
+            if OpamFilename.Base.check_suffix basename ".opam" ||
+               OpamFilename.Base.to_string basename = "opam"
+            then `Opam (OpamFile.make f: OpamFile.OPAM.t OpamFile.t)
+            else failwith "This is neither a URL to a tarball or an opam file")
            >>+ fun () ->
            (match OpamStd.String.split s '/' with
             | [pkg] ->
