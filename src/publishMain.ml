@@ -665,13 +665,14 @@ let main_term root =
         ([], [], [], [], [])
         args
     in
-    if no_confirmation then
+    if no_confirmation then begin
       if OpamStd.Sys.tty_in then
         OpamConsole.error_and_exit `Bad_arguments
           "'--no-confirmation' is not allowed in interactive mode. Please \
            review before submitting"
       else
-        OpamCoreConfig.update ~confirm_level:`unsafe_yes ();
+        OpamCoreConfig.update ~confirm_level:`unsafe_yes ()
+    end;
     let meta_opams =
       get_opams force dirs opams urls projects tag names version
     in
