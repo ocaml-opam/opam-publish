@@ -123,7 +123,7 @@ let get_metas force tmpdir dirs opams urls repos tag names version =
   in
   let of_dir ?(local=true) m dir =
     let r =
-      OpamStd.List.filter_map (fun (n, o, _) ->
+      OpamStd.List.filter_map (fun {OpamStateTypes.pin_name = n; pin = {pin_file = o; _}} ->
           let sz =
             try Unix.((stat (OpamFile.to_string o)).st_size)
             with Unix.Unix_error _ -> -1
