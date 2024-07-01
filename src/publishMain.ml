@@ -758,6 +758,7 @@ let () =
   OpamFormatConfig.init ();
   OpamStateConfig.load_defaults opam_root |> ignore;
   OpamCoreConfig.init ();
+  OpamRepositoryConfig.init ();
   OpamStateConfig.init ~root_dir:opam_root ();
   let publish_root = OpamFilename.Op.(opam_root / "plugins" / "opam-publish") in
   let main_command = Cmd.v main_info (main_term publish_root) in
