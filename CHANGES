@@ -1,3 +1,7 @@
+2.3.1:
+* Adapt to opam 2.2 API and update lower bound to opam libs [#138 @kit-ty-kate]
+* Use opam download command mechanism to select a specific download command [#159 @Emilios1995]
+
 2.3.0:
 * Add a new --no-confirmation argument for use in automated pipeline [#158 @AltGr - fix #132]
 * Improve the error message when a file expected to be an opam file is given as argument [#150 @kit-ty-kate - partially fix #149]
