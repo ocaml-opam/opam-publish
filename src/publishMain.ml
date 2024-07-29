@@ -85,7 +85,7 @@ let upgrade_to_2_0 ?(local=true) opam0 =
       "Could not parse the file %S as an opam file"
       (OpamFile.to_string opam0)
 
-let get_metas force tmpdir dirs opams urls repos tag names version =
+let get_metas ~exclude force tmpdir dirs opams urls repos tag names version =
   let lopt = function [x] -> Some x | _ -> None in
   let base_meta = {
     archive = None;
@@ -280,6 +280,23 @@ let get_metas force tmpdir dirs opams urls repos tag names version =
              missing_names);
       metas
   in
+  let metas =
+    List.fold_left (fun metas name ->
+        let name = OpamPackage.Name.of_string name in
+        match
+          List.partition (function
+              | {name = Some name'; _} ->
+                OpamPackage.Name.equal name name'
+              | {name = None; _} -> false)
+            metas
+        with
+        | [], _ ->
+          OpamConsole.error_and_exit `Not_found
+            "Excluded package '%s' not found"
+            (OpamPackage.Name.to_string name)
+        | _::_, metas -> metas)
+      metas exclude
+  in
   let is_incomplete =
     List.exists (fun m ->
         m.opam = None || m.name = None || m.version = None ||
@@ -362,10 +379,10 @@ let get_opam ?(force=false) meta =
     |> OpamStd.Option.some
   | None -> None
 
-let get_opams force dirs opams urls repos tag names version =
+let get_opams ~exclude force dirs opams urls repos tag names version =
   List.iter upgrade_to_2_0 opams;
   OpamFilename.with_tmp_dir @@ fun tmpdir ->
-  get_metas force tmpdir dirs opams urls repos tag names version |>
+  get_metas ~exclude force tmpdir dirs opams urls repos tag names version |>
   List.map (fun m -> package m, (m, get_opam ~force m)) |>
   OpamPackage.Map.of_list |>
   OpamPackage.Map.map
@@ -519,6 +536,11 @@ module Args = struct
     value & flag &
     info ["no-confirmation"] ~docs ~doc:
       "Skip all confirmations. This should only ever be used in very special circumstances, like automated publishing CI workflows where measures to ensure the submission has been reviewed have already taken place."
+
+  let exclude =
+    value & opt (list string) [] &
+    info ["exclude"] ~docs ~doc:
+      "Excludes the given list of packages from the publishing process"
 end
 
 let identical f = function
@@ -654,7 +676,7 @@ let to_files ?(split=false) ~packages_dir meta_opams =
 let main_term root =
   let run
       args force tag version dry_run output_patch no_browser repo
-      target_branch packages_dir title msg split no_confirmation =
+      target_branch packages_dir title msg split no_confirmation exclude =
     let dirs, opams, urls, projects, names =
       List.fold_left (fun (dirs, opams, urls, projects, names) -> function
           | `Dir d -> (dirs @ [d], opams, urls, projects, names)
@@ -674,7 +696,7 @@ let main_term root =
         OpamCoreConfig.update ~confirm_level:`unsafe_yes ()
     end;
     let meta_opams =
-      get_opams force dirs opams urls projects tag names version
+      get_opams ~exclude force dirs opams urls projects tag names version
     in
     if not (output_patch <> None ||
             OpamConsole.confirm
@@ -698,7 +720,7 @@ let main_term root =
   Term.(const run
         $ src_args $ force $ tag $ version $ dry_run $ output_patch $ no_browser
         $ repo $ target_branch $ packages_dir $ title $ msg_file $ split
-        $ no_confirmation)
+        $ no_confirmation $ exclude)
 
 
 let main_info =
