@@ -1,3 +1,6 @@
+2.4.0:
+* Add `--exclude` to exclude the given packages from the publishing process [#161 @kit-ty-kate]
+
 2.3.1:
 * Adapt to opam 2.2 API and update lower bound to opam libs [#138 @kit-ty-kate]
 * Use opam download command mechanism to select a specific download command [#159 @Emilios1995]
