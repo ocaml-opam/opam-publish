@@ -12,6 +12,8 @@ open OpamStd.Op
 open OpamStd.Option.Op
 open PublishCommon
 
+module Lint = Opam_ci_check_lint
+
 type meta = {
   archive: OpamFilename.t option;
   opam: OpamFile.OPAM.t OpamFile.t option;
@@ -482,7 +484,7 @@ module Args = struct
   let force =
     value & flag &
     info ["f";"force"] ~docs ~doc:
-      "Don't stop on opam linting errors"
+      "Don't stop on opam linting errors or opam-ci-check-lint errors."
 
   let tag =
     value & opt (some string) None &
@@ -500,6 +502,11 @@ module Args = struct
     value & flag &
     info ["n";"dry-run"] ~docs ~doc:
       "Show what would be submitted, but don't file a pull-request"
+
+  let opam_ci_lint =
+    value & flag &
+    info ["opam-ci-lint"] ~docs ~doc:
+      "Run the opam-ci-check-lint tool on the packages before submitting."
 
   let output_patch =
     value & opt (some string) None &
@@ -702,9 +709,18 @@ let to_files ?(split=false) ~packages_dir meta_opams =
     []
   |> List.rev
 
+let opam_ci_check ~opam_repo_dir meta_opams =
+  let opam_repo_dir = OpamFilename.Dir.to_string opam_repo_dir in
+  let lint_metas = OpamPackage.Map.fold (fun pkg (m, o) acc ->
+      let pkg_src_dir = Option.map OpamFilename.Dir.to_string m.dir in
+      let newly_published = None in
+      Lint.v ~pkg ~pkg_src_dir ~newly_published o :: acc
+    ) meta_opams [] in
+  Lint.lint_packages ~opam_repo_dir lint_metas
+
 let main_term root =
   let run
-      args force tag version dry_run output_patch no_browser repo
+      args force tag version dry_run opam_ci_lint output_patch no_browser repo
       target_branch packages_dir title msg split no_confirmation exclude
       pre_release token =
     let dirs, opams, urls, projects, names =
@@ -737,22 +753,37 @@ let main_term root =
     let pr_title = title +! pr_title in
     let files = to_files ~split ~packages_dir meta_opams in
     let output_patch = Option.map OpamFilename.of_string output_patch in
-    PublishSubmit.submit
-      root
-      ~token
-      ~dry_run
-      ~output_patch
-      ~no_browser
-      repo target_branch pr_title pr_body
-      (OpamPackage.Map.keys meta_opams)
-      files
+    let opam_repo_dir =
+      PublishSubmit.prepare_opam_repository ~token ~target_branch ~repo root in
+    let lint_errors =
+      match opam_ci_lint, repo with
+      | true, _
+      | _, ("ocaml", "opam-repository") ->
+        opam_ci_check ~opam_repo_dir meta_opams |> (function
+            | Ok [] -> Ok ()
+            | Ok e -> Error (e |> List.map Lint.msg_of_error |> String.concat "\n")
+            | Error _ as e -> e)
+      | _ -> Ok ()
+    in
+    if Result.is_error lint_errors then
+      OpamConsole.error "%s" (Result.get_error lint_errors);
+    if Result.is_ok lint_errors || force then
+      PublishSubmit.submit
+        root
+        ~token
+        ~dry_run
+        ~output_patch
+        ~no_browser
+        repo target_branch pr_title pr_body
+        (OpamPackage.Map.keys meta_opams)
+        files
   in
   let open Args in
   Term.(const run
-        $ src_args $ force $ tag $ version $ dry_run $ output_patch $ no_browser
-        $ repo $ target_branch $ packages_dir $ title $ msg_file $ split
-        $ no_confirmation $ exclude $ pre_release $ token)
-
+        $ src_args $ force $ tag $ version $ dry_run $ opam_ci_lint
+        $ output_patch $ no_browser $ repo $ target_branch $ packages_dir
+        $ title $ msg_file $ split $ no_confirmation $ exclude $ pre_release
+        $ token)
 
 let main_info =
   Cmd.info "opam-publish"
@@ -784,6 +815,11 @@ let main_info =
           they filter out packages with different names, and can also specify \
           the name of the package to submit when that is not known from its \
           metadata.";
+      `P "The $(i,opam-ci-check-lint) tool is run on the packages by default \
+          when submitting to $(i,ocaml/opam-repository). Use the \
+          $(b,--opam-ci-lint) option to run the tool when submitting to \
+          other repositories. Any lint errors will prevent the submission, \
+          unless $(b,--force) is used.";
       `S "OPTIONS";
       `S "METADATA GATHERING";
       `S "SUBMITTING";
