@@ -2,7 +2,15 @@
  (public_name opam-publish)
  (package opam-publish)
  (name publishMain)
- (libraries lwt opam-core opam-format opam-state cohttp github.unix cmdliner))
+ (libraries
+  lwt
+  opam-core
+  opam-format
+  opam-state
+  cohttp
+  github.unix
+  cmdliner
+  opam-ci-check-lint))
 
 (rule
   (targets version.ml)
