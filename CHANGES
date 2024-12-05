@@ -1,3 +1,6 @@
+2.5.0:
+* Add a new `--pre-release` argument adding the necessary flags and availibility formula for pre-releases [#164 @kit-ty-kate]
+
 2.4.0:
 * Add `--exclude` to exclude the given packages from the publishing process [#161 @kit-ty-kate]
 
