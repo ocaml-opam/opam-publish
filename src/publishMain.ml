@@ -355,7 +355,25 @@ let get_metas ~exclude force tmpdir dirs opams urls repos tag names version =
          no_url);
   metas
 
-let get_opam ?(force=false) meta =
+let set_pre_release ~pre_release opam =
+  if pre_release then
+    let opam_version =
+      OpamTypes.FIdent ([], OpamVariable.of_string "opam-version", None)
+    in
+    let add_to_available filter opam =
+      match OpamFile.OPAM.available opam with
+      | FBool true ->
+        OpamFile.OPAM.with_available filter opam
+      | available ->
+        OpamFile.OPAM.with_available (OpamTypes.FAnd (filter, available)) opam
+    in
+    opam
+    |> OpamFile.OPAM.add_flags [OpamTypes.Pkgflag_AvoidVersion]
+    |> add_to_available (OpamTypes.FOp (opam_version, `Geq, FString "2.1.0"))
+  else
+    opam
+
+let get_opam ?(force=false) ~pre_release meta =
   let f = opam meta in
   let warns, opam = OpamFileTools.lint_file f in
   let err = List.exists (fun (_,e,_) -> e = `Error) warns in
@@ -376,14 +394,15 @@ let get_opam ?(force=false) meta =
     |> OpamFile.OPAM.with_name_opt None
     |> OpamFile.OPAM.with_version_opt None
     |> OpamFile.OPAM.with_url_opt url
+    |> set_pre_release ~pre_release
     |> OpamStd.Option.some
   | None -> None
 
-let get_opams ~exclude force dirs opams urls repos tag names version =
+let get_opams ~exclude ~pre_release force dirs opams urls repos tag names version =
   List.iter upgrade_to_2_0 opams;
   OpamFilename.with_tmp_dir @@ fun tmpdir ->
   get_metas ~exclude force tmpdir dirs opams urls repos tag names version |>
-  List.map (fun m -> package m, (m, get_opam ~force m)) |>
+  List.map (fun m -> package m, (m, get_opam ~force ~pre_release m)) |>
   OpamPackage.Map.of_list |>
   OpamPackage.Map.map
     (function
@@ -541,6 +560,11 @@ module Args = struct
     value & opt (list string) [] &
     info ["exclude"] ~docs ~doc:
       "Excludes the given list of packages from the publishing process"
+
+  let pre_release =
+    value & flag &
+    info ["pre-release"] ~docs ~doc:
+      "Add the necessary flags and availability formula (`flags: avoid-version` and `available: opam-version >= \"2.1.0\"`) for pre-releases (e.g. alpha, beta, rc, …) that are not meant to be used by default"
 end
 
 let identical f = function
@@ -676,7 +700,8 @@ let to_files ?(split=false) ~packages_dir meta_opams =
 let main_term root =
   let run
       args force tag version dry_run output_patch no_browser repo
-      target_branch packages_dir title msg split no_confirmation exclude =
+      target_branch packages_dir title msg split no_confirmation exclude
+      pre_release =
     let dirs, opams, urls, projects, names =
       List.fold_left (fun (dirs, opams, urls, projects, names) -> function
           | `Dir d -> (dirs @ [d], opams, urls, projects, names)
@@ -696,7 +721,7 @@ let main_term root =
         OpamCoreConfig.update ~confirm_level:`unsafe_yes ()
     end;
     let meta_opams =
-      get_opams ~exclude force dirs opams urls projects tag names version
+      get_opams ~exclude ~pre_release force dirs opams urls projects tag names version
     in
     if not (output_patch <> None ||
             OpamConsole.confirm
@@ -720,7 +745,7 @@ let main_term root =
   Term.(const run
         $ src_args $ force $ tag $ version $ dry_run $ output_patch $ no_browser
         $ repo $ target_branch $ packages_dir $ title $ msg_file $ split
-        $ no_confirmation $ exclude)
+        $ no_confirmation $ exclude $ pre_release)
 
 
 let main_info =
