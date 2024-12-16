@@ -301,9 +301,7 @@ let add_files_and_pr
     with OpamSystem.Command_not_found _ -> ()
   end
 
-let submit
-    root ~dry_run ~output_patch ~no_browser
-    repo target_branch title msg packages files =
+let prepare_opam_repository ~target_branch ~repo root =
   (* Prepare the repo *)
   let mirror_dir = repo_dir root repo in
   let user, token =
@@ -317,6 +315,11 @@ let submit
   in
   (* pull-request processing *)
   update_mirror root repo ~user ~token target_branch;
+  mirror_dir, user, token
+
+let submit
+    root ~dry_run ~output_patch ~no_browser ~user ~token
+    repo target_branch title msg packages files =
   let branch = user_branch packages in
   add_files_and_pr root ~dry_run ~output_patch ~no_browser
     repo user token title msg branch target_branch files

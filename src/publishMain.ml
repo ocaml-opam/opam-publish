@@ -12,6 +12,8 @@ open OpamStd.Op
 open OpamStd.Option.Op
 open PublishCommon
 
+module Lint = Opam_ci_check_lint.Lint
+
 type meta = {
   archive: OpamFilename.t option;
   opam: OpamFile.OPAM.t OpamFile.t option;
@@ -697,6 +699,15 @@ let to_files ?(split=false) ~packages_dir meta_opams =
     []
   |> List.rev
 
+let opam_ci_lint ~opam_repo_dir meta_opams =
+  let opam_repo_dir = (OpamFilename.Dir.to_string opam_repo_dir) in
+  let lint_metas = OpamPackage.Map.fold (fun pkg (m, o) acc ->
+      let pkg_src_dir = Option.map OpamFilename.Dir.to_string m.dir in
+      let newly_published = None in
+      (Lint.v ~pkg ~pkg_src_dir ~newly_published o) :: acc
+    ) meta_opams [] in
+  Lint.lint_packages ~opam_repo_dir lint_metas
+
 let main_term root =
   let run
       args force tag version dry_run output_patch no_browser repo
@@ -732,14 +743,29 @@ let main_term root =
     let pr_title = title +! pr_title in
     let files = to_files ~split ~packages_dir meta_opams in
     let output_patch = OpamStd.Option.map OpamFilename.of_string output_patch in
-    PublishSubmit.submit
-      root
-      ~dry_run
-      ~output_patch
-      ~no_browser
-      repo target_branch pr_title pr_body
-      (OpamPackage.Map.keys meta_opams)
-      files
+    let opam_repo_dir, user, token = PublishSubmit.prepare_opam_repository ~target_branch ~repo root in
+    let lint_errors =
+      match repo with
+      | ("ocaml", "opam-repository") ->
+        opam_ci_lint ~opam_repo_dir meta_opams |> (function
+            | Ok [] -> Ok ()
+            | Ok e -> Error (e |> List.map Lint.msg_of_error |> String.concat "\n")
+            | Error _ as e -> e)
+      | _ -> Ok ()
+    in
+    match lint_errors with
+    | Error e -> OpamConsole.error "%s" e
+    | _ ->
+      PublishSubmit.submit
+        root
+        ~dry_run
+        ~output_patch
+        ~no_browser
+        ~user
+        ~token
+        repo target_branch pr_title pr_body
+        (OpamPackage.Map.keys meta_opams)
+        files
   in
   let open Args in
   Term.(const run
