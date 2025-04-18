@@ -803,7 +803,9 @@ let () =
   OpamSystem.init ();
   let opam_root = OpamStateConfig.opamroot () in
   OpamFormatConfig.init ();
-  OpamStateConfig.load_defaults opam_root |> ignore;
+  let _ : OpamFile.Config.t option =
+    OpamStateConfig.load_defaults opam_root
+  in
   OpamCoreConfig.init ();
   OpamRepositoryConfig.init ();
   OpamStateConfig.init ~root_dir:opam_root ();
