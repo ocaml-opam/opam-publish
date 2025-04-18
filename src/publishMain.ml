@@ -53,7 +53,7 @@ let tmp_source tmpdir url =
 
 let upgrade_to_2_0 ?(local=true) opam0 =
   try
-    OpamStd.Option.iter (fun opam ->
+    Option.iter (fun opam ->
         let opam =
           OpamFileTools.add_aux_files ~dir:(OpamFilename.dirname (OpamFile.filename opam0))
             ~files_subdir_hashes:true opam
@@ -123,7 +123,7 @@ let get_metas ~exclude force tmpdir dirs opams urls repos tag names version =
   in
   let of_dir ?(local=true) m dir =
     let r =
-      OpamStd.List.filter_map (fun {OpamStateTypes.pin_name = n; pin = {pin_file = o; _}} ->
+      List.filter_map (fun {OpamStateTypes.pin_name = n; pin = {pin_file = o; _}} ->
           let sz =
             try Unix.((stat (OpamFile.to_string o)).st_size)
             with Unix.Unix_error _ -> -1
@@ -395,7 +395,7 @@ let get_opam ?(force=false) ~pre_release meta =
     |> OpamFile.OPAM.with_version_opt None
     |> OpamFile.OPAM.with_url_opt url
     |> set_pre_release ~pre_release
-    |> OpamStd.Option.some
+    |> Option.some
   | None -> None
 
 let get_opams ~exclude ~pre_release force dirs opams urls repos tag names version =
@@ -731,7 +731,7 @@ let main_term root =
     let pr_title, pr_body = pull_request_message ?msg meta_opams in
     let pr_title = title +! pr_title in
     let files = to_files ~split ~packages_dir meta_opams in
-    let output_patch = OpamStd.Option.map OpamFilename.of_string output_patch in
+    let output_patch = Option.map OpamFilename.of_string output_patch in
     PublishSubmit.submit
       root
       ~dry_run
@@ -804,7 +804,7 @@ let () =
   let opam_root = OpamStateConfig.opamroot () in
   OpamFormatConfig.init ();
   let _ : OpamFile.Config.t option =
-    OpamStateConfig.load_defaults opam_root
+    OpamStateConfig.load_defaults ~lock_kind:`Lock_none opam_root
   in
   OpamCoreConfig.init ();
   OpamRepositoryConfig.init ();

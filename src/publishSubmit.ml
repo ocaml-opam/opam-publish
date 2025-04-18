@@ -8,7 +8,6 @@
 (*                                                                        *)
 (**************************************************************************)
 
-open OpamStd.Op
 open PublishCommon
 
 let reset_terminal : (unit -> unit) option ref = ref None
