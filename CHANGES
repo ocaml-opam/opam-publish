@@ -1,3 +1,6 @@
+2.5.1:
+* Upgrade to opam 2.4.0 and OCaml 4.08 [#169 @kit-ty-kate]
+
 2.5.0:
 * Add a new `--pre-release` argument adding the necessary flags and availibility formula for pre-releases [#164 @kit-ty-kate]
 
