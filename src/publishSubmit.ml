@@ -293,6 +293,7 @@ let add_files_and_pr
     GH.pull_request title user token repo ~text:message branch target_branch
   in
   OpamConsole.msg "Pull-requested: %s\n" url;
+  OpamConsole.msg "You can re-run this command to update the pull-request.\n";
   if not no_browser then begin
     try
       let auto_open =
