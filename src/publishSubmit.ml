@@ -90,7 +90,7 @@ module GH = struct
         List.filter (OpamFilename.ends_with ".token") (OpamFilename.files root)
       with
       | [f] when
-          not (OpamStd.String.contains_char
+          not (String.contains
                  (OpamFilename.(Base.to_string (basename f))) '%') ->
         OpamFilename.move ~src:f ~dst:tok_file; true
       | _ -> false
