@@ -441,7 +441,7 @@ module Args = struct
          let u = OpamUrl.of_string s in
          let src_opt =
            (if s <> "opam" && not (String.contains s '/') &&
-               not (OpamStd.String.ends_with ~suffix:".opam" s)
+               not (OpamCompat.String.ends_with ~suffix:".opam" s)
             then
               try Some (`Name (OpamPackage.Name.of_string s))
               with Failure _ -> None
