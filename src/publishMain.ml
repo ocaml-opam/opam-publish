@@ -375,15 +375,20 @@ let set_pre_release ~pre_release opam =
   else
     opam
 
-let get_opam ?(force=false) ~pre_release meta =
+let get_opam ?(lint=true) ?(force=false) ~pre_release meta =
   let f = opam meta in
-  let warns, opam = OpamFileTools.lint_file f in
-  let err = List.exists (fun (_,e,_) -> e = `Error) warns in
-  if warns <> [] then
-    OpamConsole.errmsg "Definition for %s didn't pass validation:\n%s\n"
-      (OpamConsole.colorise `bold (OpamPackage.to_string (package meta)))
-      (OpamFileTools.warns_to_string warns);
-  if err && not force then None else
+  let opam =
+    if lint then
+      let warns, opam = OpamFileTools.lint_file f in
+      let err = List.exists (fun (_,e,_) -> e = `Error) warns in
+      if warns <> [] then
+        OpamConsole.errmsg "Definition for %s didn't pass validation:\n%s\n"
+          (OpamConsole.colorise `bold (OpamPackage.to_string (package meta)))
+          (OpamFileTools.warns_to_string warns);
+      if err && not force then None else opam
+    else
+      OpamFile.OPAM.read_opt f
+  in
   match opam with
   | Some o ->
     let url =
@@ -400,11 +405,12 @@ let get_opam ?(force=false) ~pre_release meta =
     |> Option.some
   | None -> None
 
-let get_opams ~exclude ~pre_release force dirs opams urls repos tag names version =
+let get_opams ~lint ~exclude ~pre_release force dirs opams urls repos tag
+    names version =
   List.iter upgrade_to_2_0 opams;
   OpamFilename.with_tmp_dir @@ fun tmpdir ->
   get_metas ~exclude force tmpdir dirs opams urls repos tag names version |>
-  List.map (fun m -> package m, (m, get_opam ~force ~pre_release m)) |>
+  List.map (fun m -> package m, (m, get_opam ~lint ~force ~pre_release m)) |>
   OpamPackage.Map.of_list |>
   OpamPackage.Map.map
     (function
@@ -711,16 +717,23 @@ let to_files ?(split=false) ~packages_dir meta_opams =
 
 let opam_ci_check ~opam_repo_dir meta_opams =
   let opam_repo_dir = OpamFilename.Dir.to_string opam_repo_dir in
-  let lint_metas = OpamPackage.Map.fold (fun pkg (m, o) acc ->
+  let lint_metas =
+    OpamPackage.Map.fold (fun pkg (m, o) acc ->
       let pkg_src_dir = Option.map OpamFilename.Dir.to_string m.dir in
       let newly_published = None in
-      Lint.v ~pkg ~pkg_src_dir ~newly_published o :: acc
-    ) meta_opams [] in
+      Lint.v ~pkg ~pkg_src_dir ~newly_published o :: acc)
+    meta_opams [] in
   Lint.lint_packages ~opam_repo_dir lint_metas
+
+let opam_ci_lint opam_ci_lint repo =
+  opam_ci_lint
+  || (let org, repo = repo in
+      String.equal org "ocaml"
+      && String.equal repo "opam-repository")
 
 let main_term root =
   let run
-      args force tag version dry_run opam_ci_lint output_patch no_browser repo
+      args force tag version dry_run opam_ci_lint_f output_patch no_browser repo
       target_branch packages_dir title msg split no_confirmation exclude
       pre_release token =
     let dirs, opams, urls, projects, names =
@@ -741,8 +754,10 @@ let main_term root =
       else
         OpamCoreConfig.update ~confirm_level:`unsafe_yes ()
     end;
+    let opam_ci_lint = opam_ci_lint opam_ci_lint_f repo in
     let meta_opams =
-      get_opams ~exclude ~pre_release force dirs opams urls projects tag names version
+      get_opams ~lint:(not opam_ci_lint) ~exclude ~pre_release force dirs opams
+        urls projects tag names version
     in
     if not (output_patch <> None ||
             OpamConsole.confirm
@@ -756,14 +771,12 @@ let main_term root =
     let opam_repo_dir =
       PublishSubmit.prepare_opam_repository ~token ~target_branch ~repo root in
     let lint_errors =
-      match opam_ci_lint, repo with
-      | true, _
-      | _, ("ocaml", "opam-repository") ->
+      if opam_ci_lint then
         opam_ci_check ~opam_repo_dir meta_opams |> (function
             | Ok [] -> Ok ()
             | Ok e -> Error (e |> List.map Lint.msg_of_error |> String.concat "\n")
             | Error _ as e -> e)
-      | _ -> Ok ()
+      else Ok ()
     in
     if Result.is_error lint_errors then
       OpamConsole.error "%s" (Result.get_error lint_errors);
