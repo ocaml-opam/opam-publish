@@ -565,6 +565,11 @@ module Args = struct
     value & flag &
     info ["pre-release"] ~docs ~doc:
       "Add the necessary flags and availability formula (`flags: avoid-version` and `available: opam-version >= \"2.1.0\"`) for pre-releases (e.g. alpha, beta, rc, …) that are not meant to be used by default"
+
+  let token =
+    let doc = "Personal GitHub access token for authentication" in
+    let env = Cmd.Env.info ~docs ~doc "OPAM_PUBLISH_GH_TOKEN" in
+    value & opt (some string) None & info ["token"] ~env ~docs ~doc
 end
 
 let identical f = function
@@ -701,7 +706,7 @@ let main_term root =
   let run
       args force tag version dry_run output_patch no_browser repo
       target_branch packages_dir title msg split no_confirmation exclude
-      pre_release =
+      pre_release token =
     let dirs, opams, urls, projects, names =
       List.fold_left (fun (dirs, opams, urls, projects, names) -> function
           | `Dir d -> (dirs @ [d], opams, urls, projects, names)
@@ -734,6 +739,7 @@ let main_term root =
     let output_patch = Option.map OpamFilename.of_string output_patch in
     PublishSubmit.submit
       root
+      ~token
       ~dry_run
       ~output_patch
       ~no_browser
@@ -745,7 +751,7 @@ let main_term root =
   Term.(const run
         $ src_args $ force $ tag $ version $ dry_run $ output_patch $ no_browser
         $ repo $ target_branch $ packages_dir $ title $ msg_file $ split
-        $ no_confirmation $ exclude $ pre_release)
+        $ no_confirmation $ exclude $ pre_release $ token)
 
 
 let main_info =

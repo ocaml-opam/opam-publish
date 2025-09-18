@@ -79,7 +79,7 @@ module GH = struct
     )
   )
 
-  let rec get_user_token root (repo_owner, repo_name) =
+  let rec get_user_token ~cli_token root (repo_owner, repo_name) =
     let tok_file =
       OpamFilename.Op.(root // (repo_owner ^ "%" ^ repo_name ^ ".token"))
     in
@@ -103,33 +103,36 @@ module GH = struct
         OpamConsole.msg "\nExisting Github token is no longer valid (%s).\n"
           (OpamFilename.prettify tok_file);
         OpamFilename.remove tok_file;
-        get_user_token root (repo_owner, repo_name)
+        get_user_token ~cli_token root (repo_owner, repo_name)
     else
     let token =
-      OpamConsole.msg
-        "Please generate a Github token at \
-         https://github.com/settings/tokens/new to allow access.\n\
-         The \"public_repo\" scope is required (\"repo\" if submitting to a \
-         private opam repository).\n\n";
-      let token =
-        let rec get_pass () =
-          match
-            OpamConsole.read "Please enter your GitHub personal access token:"
-          with
-          | Some p -> p
-          | None -> get_pass ()
+      match cli_token with
+      | Some token -> Token.of_string token
+      | None ->
+        OpamConsole.msg
+          "Please generate a Github token at \
+           https://github.com/settings/tokens/new to allow access.\n\
+           The \"public_repo\" scope is required (\"repo\" if submitting to a \
+           private opam repository).\n\n";
+        let token =
+          let rec get_pass () =
+            match
+              OpamConsole.read "Please enter your GitHub personal access token:"
+            with
+            | Some p -> p
+            | None -> get_pass ()
+          in
+          let input = no_stdin_echo get_pass in
+          Token.of_string (OpamStd.String.strip input)
         in
-        let input = no_stdin_echo get_pass in
-        Token.of_string (OpamStd.String.strip input)
-      in
-      token
+        token
     in
     let user, token =
       match get_user token with
       | Some u -> u, token
       | None ->
         OpamConsole.msg "Sorry, this token does not appear to be valid.\n";
-        get_user_token root (repo_owner, repo_name)
+        get_user_token ~cli_token root (repo_owner, repo_name)
     in
     OpamConsole.msg
       "The token will be stored in %s.\n"
@@ -304,17 +307,17 @@ let add_files_and_pr
   end
 
 let submit
-    root ~dry_run ~output_patch ~no_browser
+    root ~token ~dry_run ~output_patch ~no_browser
     repo target_branch title msg packages files =
   (* Prepare the repo *)
   let mirror_dir = repo_dir root repo in
   let user, token =
     if not OpamFilename.(exists_dir Op.(mirror_dir / ".git" )) then
-      let user, token = GH.get_user_token root repo in
+      let user, token = GH.get_user_token ~cli_token:token root repo in
       init_mirror root repo user token;
       user, token
     else
-    let user, token = GH.get_user_token root repo in
+    let user, token = GH.get_user_token ~cli_token:token root repo in
     user, token
   in
   (* pull-request processing *)
