@@ -1,3 +1,8 @@
+2.6.0:
+* Add a new `--token` argument (also accessible through the `OPAM_PUBLISH_GH_TOKEN` environment variable) which accepts GitHub tokens to simplify non-interactive usages [#174 @filipeom]
+* Add a message after the PR was open, to notify users that they can re-run opam-publish to update the PR [#172 @punchagan]
+* Remove the use of the deprecated `github.unix` in favour of `github-unix` (added in ocaml-github 3.1.0) [@kit-ty-kate]
+
 2.5.1:
 * Upgrade to opam 2.4.0 and OCaml 4.08 [#169 @kit-ty-kate]
 
