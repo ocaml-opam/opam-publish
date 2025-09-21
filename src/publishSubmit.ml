@@ -19,7 +19,9 @@ let () =
 
 let (/) a b = String.concat "/" [a;b]
 
-let github_root = "git@github.com:"
+let github_root = "https://github.com/"
+
+let github_root_with_token token = "https://" ^ token ^ "@github.com/"
 
 type github_repo = string * string (* owner, name *)
 
@@ -49,6 +51,12 @@ module GH = struct
   open Lwt
   open Github
 
+  type user = {
+    name : string;
+    email : string;
+    login : string;
+  }
+
   let token_note hostname = "opam-publish access token ("^hostname^")"
 
   let no_stdin_echo f =
@@ -71,8 +79,12 @@ module GH = struct
 
   let get_user token = Lwt_main.run @@ Monad.(
     Lwt.catch (fun () -> run (
-      User.current_info ~token ()
-      >>~ fun u -> return (Some u.Github_t.user_info_login)
+      let open OpamStd.Option.Op in
+      User.current_info ~token () >>~ fun u ->
+      let login = u.Github_t.user_info_login in
+      let name = u.Github_t.user_info_name +! login in
+      let email = u.Github_t.user_info_email +! login ^ "@opam-publish" in
+      return (Some { name; email; login })
     )) (function
       | Message (`Unauthorized, _) -> Lwt.return None
       | exn -> Lwt.fail exn
@@ -232,7 +244,10 @@ let init_mirror root repo user token =
      github_root^(fst repo)/(snd repo)^".git";
      OpamFilename.Dir.to_string dir];
   GH.fork token repo;
-  git_command ~dir ["remote"; "add"; "user"; github_root^user/(snd repo)]
+  (* Create a url like: https://TOKEN@github.com/USER/REPO_NAME *)
+  let token = Github.Token.to_string token in
+  let github_root = github_root_with_token token in
+  git_command ~dir ["remote"; "add"; "user"; github_root^user.GH.login/(snd repo)]
 
 let update_mirror root repo ~user ~token branch =
   let dir = repo_dir root repo in
@@ -293,7 +308,7 @@ let add_files_and_pr
             "\nFile a pull-request for this patch ?") then
     OpamStd.Sys.exit_because `Aborted;
   let url =
-    GH.pull_request title user token repo ~text:message branch target_branch
+    GH.pull_request title user.GH.login token repo ~text:message branch target_branch
   in
   OpamConsole.msg "Pull-requested: %s\n" url;
   OpamConsole.msg "You can re-run this command to update the pull-request.\n";
