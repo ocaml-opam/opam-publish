@@ -232,6 +232,22 @@ module GH = struct
 
 end
 
+let configure_user ~dir user =
+  let open OpamStd.Option.Op in
+  let name = git_query ~dir ["config"; "--get"; "user.name"] >>| String.trim in
+  let email = git_query ~dir ["config"; "--get"; "user.email"] >>| String.trim in
+  match (name, email) with
+  | (None, None) | (Some "", Some "") ->
+    git_command ~dir ["config"; "user.email"; user.GH.email];
+    git_command ~dir ["config"; "user.name"; user.GH.name]
+  | ((None | Some ""), Some _) ->
+    git_command ~dir ["config"; "user.name"; user.GH.name]
+  | (Some _, (None | Some "")) ->
+    git_command ~dir ["config"; "user.email"; user.GH.email]
+  | Some _, Some _ ->
+    (* If both are set we probably want to use the configured name and email *)
+    ()
+
 let init_mirror root repo user token =
   let dir = repo_dir root repo in
   if OpamFilename.exists_dir dir then
@@ -244,6 +260,7 @@ let init_mirror root repo user token =
      github_root^(fst repo)/(snd repo)^".git";
      OpamFilename.Dir.to_string dir];
   GH.fork token repo;
+  configure_user ~dir user;
   (* Create a url like: https://TOKEN@github.com/USER/REPO_NAME *)
   let token = Github.Token.to_string token in
   let github_root = github_root_with_token token in
