@@ -21,6 +21,7 @@ depends: [
   "opam-state" {>= "2.2.0"}
   "github" {>= "4.3.2"}
   "github-unix" {>= "4.3.2"}
+  "opam-ci-check-lint" {>= "0.2"}
 ]
 flags: plugin
 synopsis: "A tool to ease contributions to opam repositories"

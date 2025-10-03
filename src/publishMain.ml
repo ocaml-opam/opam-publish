@@ -12,6 +12,8 @@ open OpamStd.Op
 open OpamStd.Option.Op
 open PublishCommon
 
+module Lint = Opam_ci_check_lint
+
 type meta = {
   archive: OpamFilename.t option;
   opam: OpamFile.OPAM.t OpamFile.t option;
@@ -373,15 +375,20 @@ let set_pre_release ~pre_release opam =
   else
     opam
 
-let get_opam ?(force=false) ~pre_release meta =
+let get_opam ?(lint=true) ?(force=false) ~pre_release meta =
   let f = opam meta in
-  let warns, opam = OpamFileTools.lint_file f in
-  let err = List.exists (fun (_,e,_) -> e = `Error) warns in
-  if warns <> [] then
-    OpamConsole.errmsg "Definition for %s didn't pass validation:\n%s\n"
-      (OpamConsole.colorise `bold (OpamPackage.to_string (package meta)))
-      (OpamFileTools.warns_to_string warns);
-  if err && not force then None else
+  let opam =
+    if lint then
+      let warns, opam = OpamFileTools.lint_file f in
+      let err = List.exists (fun (_,e,_) -> e = `Error) warns in
+      if warns <> [] then
+        OpamConsole.errmsg "Definition for %s didn't pass validation:\n%s\n"
+          (OpamConsole.colorise `bold (OpamPackage.to_string (package meta)))
+          (OpamFileTools.warns_to_string warns);
+      if err && not force then None else opam
+    else
+      OpamFile.OPAM.read_opt f
+  in
   match opam with
   | Some o ->
     let url =
@@ -398,11 +405,12 @@ let get_opam ?(force=false) ~pre_release meta =
     |> Option.some
   | None -> None
 
-let get_opams ~exclude ~pre_release force dirs opams urls repos tag names version =
+let get_opams ~lint ~exclude ~pre_release force dirs opams urls repos tag
+    names version =
   List.iter upgrade_to_2_0 opams;
   OpamFilename.with_tmp_dir @@ fun tmpdir ->
   get_metas ~exclude force tmpdir dirs opams urls repos tag names version |>
-  List.map (fun m -> package m, (m, get_opam ~force ~pre_release m)) |>
+  List.map (fun m -> package m, (m, get_opam ~lint ~force ~pre_release m)) |>
   OpamPackage.Map.of_list |>
   OpamPackage.Map.map
     (function
@@ -482,7 +490,7 @@ module Args = struct
   let force =
     value & flag &
     info ["f";"force"] ~docs ~doc:
-      "Don't stop on opam linting errors"
+      "Don't stop on opam linting errors or opam-ci-check-lint errors."
 
   let tag =
     value & opt (some string) None &
@@ -500,6 +508,11 @@ module Args = struct
     value & flag &
     info ["n";"dry-run"] ~docs ~doc:
       "Show what would be submitted, but don't file a pull-request"
+
+  let opam_ci_lint =
+    value & flag &
+    info ["opam-ci-lint"] ~docs ~doc:
+      "Run the opam-ci-check-lint tool on the packages before submitting."
 
   let output_patch =
     value & opt (some string) None &
@@ -702,9 +715,25 @@ let to_files ?(split=false) ~packages_dir meta_opams =
     []
   |> List.rev
 
+let opam_ci_check ~opam_repo_dir meta_opams =
+  let opam_repo_dir = OpamFilename.Dir.to_string opam_repo_dir in
+  let lint_metas =
+    OpamPackage.Map.fold (fun pkg (m, o) acc ->
+      let pkg_src_dir = Option.map OpamFilename.Dir.to_string m.dir in
+      let newly_published = None in
+      Lint.v ~pkg ~pkg_src_dir ~newly_published o :: acc)
+    meta_opams [] in
+  Lint.lint_packages ~opam_repo_dir lint_metas
+
+let opam_ci_lint opam_ci_lint repo =
+  opam_ci_lint
+  || (let org, repo = repo in
+      String.equal org "ocaml"
+      && String.equal repo "opam-repository")
+
 let main_term root =
   let run
-      args force tag version dry_run output_patch no_browser repo
+      args force tag version dry_run opam_ci_lint_f output_patch no_browser repo
       target_branch packages_dir title msg split no_confirmation exclude
       pre_release token =
     let dirs, opams, urls, projects, names =
@@ -725,8 +754,10 @@ let main_term root =
       else
         OpamCoreConfig.update ~confirm_level:`unsafe_yes ()
     end;
+    let opam_ci_lint = opam_ci_lint opam_ci_lint_f repo in
     let meta_opams =
-      get_opams ~exclude ~pre_release force dirs opams urls projects tag names version
+      get_opams ~lint:(not opam_ci_lint) ~exclude ~pre_release force dirs opams
+        urls projects tag names version
     in
     if not (output_patch <> None ||
             OpamConsole.confirm
@@ -737,22 +768,35 @@ let main_term root =
     let pr_title = title +! pr_title in
     let files = to_files ~split ~packages_dir meta_opams in
     let output_patch = Option.map OpamFilename.of_string output_patch in
-    PublishSubmit.submit
-      root
-      ~token
-      ~dry_run
-      ~output_patch
-      ~no_browser
-      repo target_branch pr_title pr_body
-      (OpamPackage.Map.keys meta_opams)
-      files
+    let opam_repo_dir =
+      PublishSubmit.prepare_opam_repository ~token ~target_branch ~repo root in
+    let lint_errors =
+      if opam_ci_lint then
+        opam_ci_check ~opam_repo_dir meta_opams |> (function
+            | Ok [] -> Ok ()
+            | Ok e -> Error (e |> List.map Lint.msg_of_error |> String.concat "\n")
+            | Error _ as e -> e)
+      else Ok ()
+    in
+    if Result.is_error lint_errors then
+      OpamConsole.error "%s" (Result.get_error lint_errors);
+    if Result.is_ok lint_errors || force then
+      PublishSubmit.submit
+        root
+        ~token
+        ~dry_run
+        ~output_patch
+        ~no_browser
+        repo target_branch pr_title pr_body
+        (OpamPackage.Map.keys meta_opams)
+        files
   in
   let open Args in
   Term.(const run
-        $ src_args $ force $ tag $ version $ dry_run $ output_patch $ no_browser
-        $ repo $ target_branch $ packages_dir $ title $ msg_file $ split
-        $ no_confirmation $ exclude $ pre_release $ token)
-
+        $ src_args $ force $ tag $ version $ dry_run $ opam_ci_lint
+        $ output_patch $ no_browser $ repo $ target_branch $ packages_dir
+        $ title $ msg_file $ split $ no_confirmation $ exclude $ pre_release
+        $ token)
 
 let main_info =
   Cmd.info "opam-publish"
@@ -784,6 +828,11 @@ let main_info =
           they filter out packages with different names, and can also specify \
           the name of the package to submit when that is not known from its \
           metadata.";
+      `P "The $(i,opam-ci-check-lint) tool is run on the packages by default \
+          when submitting to $(i,ocaml/opam-repository). Use the \
+          $(b,--opam-ci-lint) option to run the tool when submitting to \
+          other repositories. Any lint errors will prevent the submission, \
+          unless $(b,--force) is used.";
       `S "OPTIONS";
       `S "METADATA GATHERING";
       `S "SUBMITTING";
