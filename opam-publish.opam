@@ -14,16 +14,13 @@ build: [ "dune" "build" "-p" name "-j" jobs ]
 depends: [
   "cmdliner" {>= "1.1.0" & < "2.0.0"}
   "dune" {>= "1.0"}
-  "lwt_ssl"
+  "tls-lwt" {>= "0.16.0"}
   "ocaml" {>= "4.08.0"}
   "opam-core" {>= "2.2.0"}
   "opam-format" {>= "2.2.0"}
   "opam-state" {>= "2.2.0"}
   "github" {>= "4.3.2"}
   "github-unix" {>= "4.3.2"}
-]
-conflicts: [
-  "ssl" {= "0.5.6"}
 ]
 flags: plugin
 synopsis: "A tool to ease contributions to opam repositories"
