@@ -142,7 +142,9 @@ module GH = struct
       | Some u -> u, token
       | None ->
         OpamConsole.msg "Sorry, this token does not appear to be valid.\n";
-        get_user_token ~cli_token root (repo_owner, repo_name)
+        (* We can set cli_token to None because if we are here, it has already
+           been tested and is invalid. *)
+        get_user_token ~cli_token:None root (repo_owner, repo_name)
     in
     OpamConsole.msg
       "The token will be stored in %s.\n"
