@@ -16,9 +16,9 @@ depends: [
   "dune" {>= "1.0"}
   "tls-lwt" {>= "0.16.0"}
   "ocaml" {>= "4.08.0"}
-  "opam-core" {>= "2.2.0"}
-  "opam-format" {>= "2.2.0"}
-  "opam-state" {>= "2.2.0"}
+  "opam-core" {>= "2.5.0~"}
+  "opam-format" {>= "2.5.0~"}
+  "opam-state" {>= "2.5.0~"}
   "github" {>= "4.3.2"}
   "github-unix" {>= "4.3.2"}
 ]
