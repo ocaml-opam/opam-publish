@@ -124,8 +124,8 @@ module GH = struct
         OpamConsole.msg
           "Please generate a Github token at \
            https://github.com/settings/tokens/new to allow access.\n\
-           The \"public_repo\" scope is required (\"repo\" if submitting to a \
-           private opam repository).\n\n";
+           The \"public_repo\" and \"workflow\" scopes are required \
+           (\"repo\" if submitting to a private opam repository).\n\n";
         let token =
           let rec get_pass () =
             match
