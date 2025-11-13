@@ -21,6 +21,8 @@ depends: [
   "opam-state" {>= "2.2.0"}
   "github" {>= "4.3.2"}
   "github-unix" {>= "4.3.2"}
+  "cohttp" {>= "0.99"}
+  "cohttp-lwt-unix" {>= "0.99"}
 ]
 flags: plugin
 synopsis: "A tool to ease contributions to opam repositories"

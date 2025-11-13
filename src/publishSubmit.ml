@@ -77,21 +77,53 @@ module GH = struct
     reset_terminal := None;
     v
 
-  let get_user token = Lwt_main.run @@ Monad.(
-    Lwt.catch (fun () -> run (
-      let open OpamStd.Option.Op in
-      User.current_info ~token () >>~ fun u ->
-      let login = u.Github_t.user_info_login in
-      let name = u.Github_t.user_info_name +! login in
-      let email = u.Github_t.user_info_email +! login ^ "@opam-publish" in
-      return (Some { name; email; login })
-    )) (function
-      | Message (`Unauthorized, _) -> Lwt.return None
+  let get_gh_scopes token =
+    Lwt.catch
+      (fun () ->
+         let headers =
+           Cohttp.Header.of_list [
+             ("Authorization", "token "^Token.to_string token);
+           ]
+         in
+         let api_uri = Uri.of_string "https://api.github.com" in
+         Cohttp_lwt_unix.Client.get ~headers api_uri >>= fun (resp, body) ->
+         Cohttp_lwt.Body.drain_body body >>= fun () ->
+         let headers = Cohttp.Header.to_list (Cohttp.Response.headers resp) in
+         let headers = List.map (fun (k, x) -> (String.lowercase_ascii k, x)) headers in
+         Lwt.return (OpamStd.List.assoc_opt String.equal "x-oauth-scopes" headers))
+      (fun _exn -> Lwt.return None)
+
+  let get_user token =
+    Lwt_main.run @@
+    Lwt.catch (fun () ->
+        Monad.run (
+          let open Monad in
+          let open OpamStd.Option.Op in
+          User.current_info ~token () >>~ fun u ->
+          let login = u.Github_t.user_info_login in
+          let name = u.Github_t.user_info_name +! login in
+          let email = u.Github_t.user_info_email +! login ^ "@opam-publish" in
+          return { name; email; login }
+        ) >>= fun r ->
+        get_gh_scopes token >>= function
+        | Some scopes ->
+          let scopes = List.map String.trim (String.split_on_char ',' scopes) in
+          let scopes = List.filter (fun x -> x <> "") scopes in
+          if (List.mem "public_repo" scopes || List.mem "repo" scopes) &&
+             List.mem "workflow" scopes then
+            Lwt.return (Ok r)
+          else
+            Lwt.return (Error (`Missing_scope (r, scopes)))
+        | None ->
+          OpamConsole.warning "Unable to check the list of permissions of the given token. Ignoring.";
+          Lwt.return (Ok r)
+    ) (function
+      | Message (`Unauthorized, _) -> Lwt.return (Error `Unauthorized)
       | exn -> Lwt.fail exn
     )
-  )
 
   let rec get_user_token ~cli_token root (repo_owner, repo_name) =
+    let expected_scopes = ["\"public_repo\""; "\"workflow\""] in
     let tok_file =
       OpamFilename.Op.(root // (repo_owner ^ "%" ^ repo_name ^ ".token"))
     in
@@ -110,12 +142,23 @@ module GH = struct
     if exists then
       let token = Token.of_string (OpamFilename.read tok_file) in
       match get_user token with
-      | Some u -> u, token
-      | None ->
+      | Ok u -> u, token
+      | Error `Unauthorized ->
         OpamConsole.msg "\nExisting Github token is no longer valid (%s).\n"
           (OpamFilename.prettify tok_file);
         OpamFilename.remove tok_file;
         get_user_token ~cli_token root (repo_owner, repo_name)
+      | Error (`Missing_scope (u, scopes)) ->
+        OpamConsole.msg "\nExisting Github token doesn't have the expected \
+                         scopes (expected %s, but got %s).\n"
+          (OpamStd.Format.pretty_list expected_scopes)
+          (if scopes = [] then "none" else OpamStd.Format.pretty_list scopes);
+        if OpamConsole.confirm ~default:false
+            "Do you want to use it anyway?" then
+          u, token
+        else (
+          OpamFilename.remove tok_file;
+          get_user_token ~cli_token root (repo_owner, repo_name))
     else
     let token =
       match cli_token with
@@ -124,8 +167,9 @@ module GH = struct
         OpamConsole.msg
           "Please generate a Github token at \
            https://github.com/settings/tokens/new to allow access.\n\
-           The \"public_repo\" and \"workflow\" scopes are required \
-           (\"repo\" if submitting to a private opam repository).\n\n";
+           The %s scopes are required \
+           (\"repo\" if submitting to a private opam repository).\n\n"
+          (OpamStd.Format.pretty_list expected_scopes);
         let token =
           let rec get_pass () =
             match
@@ -141,10 +185,20 @@ module GH = struct
     in
     let user, token =
       match get_user token with
-      | Some u -> u, token
-      | None ->
+      | Ok u -> u, token
+      | Error `Unauthorized ->
         OpamConsole.msg "Sorry, this token does not appear to be valid.\n";
         get_user_token ~cli_token root (repo_owner, repo_name)
+      | Error (`Missing_scope (u, scopes)) ->
+        OpamConsole.msg "Sorry, this token doesn't have the expected scopes \
+                         (expected %s, but got %s).\n"
+          (OpamStd.Format.pretty_list expected_scopes)
+          (OpamStd.Format.pretty_list scopes);
+        if OpamConsole.confirm ~default:false
+            "Do you want to use it anyway?" then
+          u, token
+        else
+          get_user_token ~cli_token root (repo_owner, repo_name)
     in
     OpamConsole.msg
       "The token will be stored in %s.\n"
