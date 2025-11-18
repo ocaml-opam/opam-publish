@@ -1,3 +1,9 @@
+2.7.1:
+* Advertise the need, and check, for the `workflow` scope for github personal access tokens [#184 @kit-ty-kate - fix #180]
+* Enforce the git remote used to push branches to users' fork to be used instead of the SSH method, for users migrating from versions of opam-publish prior to 2.7.0 [#179 @filipeom - fix #178]
+* Avoid potential previously used tokens with the wrong permissions to be used instead of the new one [#179 @filipeom - fix #187]
+* Add support for the opam 2.5 API [#181 #173 @kit-ty-kate]
+
 2.7.0:
 * Use a token to push commits instead of SSH keys [#175 @filipeom]
 * Switch from lwt_ssl to tls-lwt which avoid one dependency [#176 @kit-ty-kate]
