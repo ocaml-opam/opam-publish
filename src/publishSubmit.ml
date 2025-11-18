@@ -21,8 +21,6 @@ let (/) a b = String.concat "/" [a;b]
 
 let github_root = "https://github.com/"
 
-let github_root_with_token token = "https://" ^ token ^ "@github.com/"
-
 type github_repo = string * string (* owner, name *)
 
 let repo_dir root (repo_owner, repo_name) =
@@ -302,6 +300,12 @@ let configure_user ~dir user =
     (* If both are set we probably want to use the configured name and email *)
     ()
 
+(** Constructs a repository url for https push authentication.
+    The format is: https://<token>@github.com/<user>/<repo_name> *)
+let make_authenticated_https_url repo ~user ~token =
+  let token = Github.Token.to_string token in
+  Format.sprintf "https://%s@github.com/%s/%s" token user.GH.login (snd repo)
+
 let init_mirror root repo user token =
   let dir = repo_dir root repo in
   if OpamFilename.exists_dir dir then
@@ -315,10 +319,8 @@ let init_mirror root repo user token =
      OpamFilename.Dir.to_string dir];
   GH.fork token repo;
   configure_user ~dir user;
-  (* Create a url like: https://TOKEN@github.com/USER/REPO_NAME *)
-  let token = Github.Token.to_string token in
-  let github_root = github_root_with_token token in
-  git_command ~dir ["remote"; "add"; "user"; github_root^user.GH.login/(snd repo)]
+  let remote = make_authenticated_https_url repo ~user ~token in
+  git_command ~dir ["remote"; "add"; "user"; remote]
 
 let update_mirror root repo ~user ~token branch =
   let dir = repo_dir root repo in
@@ -328,6 +330,9 @@ let update_mirror root repo ~user ~token branch =
     git_command ~dir ["reset"; "origin"/branch; "--hard"];
   in
   try
+    (* Updates user remote to make sure we use https token authentication. *)
+    let https_url = make_authenticated_https_url repo ~user ~token in
+    git_command ~dir ["remote"; "set-url"; "user"; https_url];
     aux ()
   with OpamSystem.Process_error _ ->
     OpamConsole.msg "Command failed. Trying one more time on a clean slate...\n";
