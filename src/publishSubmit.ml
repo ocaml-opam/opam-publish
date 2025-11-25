@@ -181,38 +181,38 @@ module GH = struct
         in
         token
     in
-    let user, token =
-      match get_user token with
-      | Ok u -> u, token
-      | Error `Unauthorized ->
-        OpamConsole.msg "Sorry, this token does not appear to be valid.\n";
-        get_user_token ~cli_token root (repo_owner, repo_name)
-      | Error (`Missing_scope (u, scopes)) ->
-        OpamConsole.msg "Sorry, this token doesn't have the expected scopes \
-                         (expected %s, but got %s).\n"
-          (OpamStd.Format.pretty_list expected_scopes)
-          (OpamStd.Format.pretty_list scopes);
-        if OpamConsole.confirm ~default:false
-            "Do you want to use it anyway?" then
-          u, token
-        else
-          get_user_token ~cli_token root (repo_owner, repo_name)
+    let ret user token =
+      OpamConsole.msg
+        "The token will be stored in %s.\n"
+        (OpamFilename.prettify tok_file);
+      let tok_file = OpamFilename.to_string tok_file in
+      OpamFilename.mkdir root;
+      let tok_fd = Unix.(openfile tok_file [O_CREAT; O_TRUNC; O_WRONLY] 0o600) in
+      let tok_oc = Unix.out_channel_of_descr tok_fd in
+      output_string tok_oc (Token.to_string token);
+      close_out tok_oc;
+      let { Unix.st_perm; _ } = Unix.stat tok_file in
+      let safe_perm = 0o7770 land st_perm in
+      begin if safe_perm <> st_perm
+        then Unix.chmod tok_file safe_perm
+      end;
+      user, token
     in
-    OpamConsole.msg
-      "The token will be stored in %s.\n"
-      (OpamFilename.prettify tok_file);
-    let tok_file = OpamFilename.to_string tok_file in
-    OpamFilename.mkdir root;
-    let tok_fd = Unix.(openfile tok_file [O_CREAT; O_TRUNC; O_WRONLY] 0o600) in
-    let tok_oc = Unix.out_channel_of_descr tok_fd in
-    output_string tok_oc (Token.to_string token);
-    close_out tok_oc;
-    let { Unix.st_perm; _ } = Unix.stat tok_file in
-    let safe_perm = 0o7770 land st_perm in
-    begin if safe_perm <> st_perm
-      then Unix.chmod tok_file safe_perm
-    end;
-    user, token
+    match get_user token with
+    | Ok u -> ret u token
+    | Error `Unauthorized ->
+      OpamConsole.msg "Sorry, this token does not appear to be valid.\n";
+      get_user_token ~cli_token root (repo_owner, repo_name)
+    | Error (`Missing_scope (u, scopes)) ->
+      OpamConsole.msg "Sorry, this token doesn't have the expected scopes \
+                       (expected %s, but got %s).\n"
+        (OpamStd.Format.pretty_list expected_scopes)
+        (OpamStd.Format.pretty_list scopes);
+      if OpamConsole.confirm ~default:false
+          "Do you want to use it anyway?" then
+        ret u token
+      else
+        get_user_token ~cli_token root (repo_owner, repo_name)
 
   let fork token repo =
     let check uri =
