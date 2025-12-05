@@ -14,6 +14,7 @@ build: [ "dune" "build" "-p" name "-j" jobs ]
 depends: [
   "cmdliner" {>= "1.1.0" & < "2.0.0"}
   "dune" {>= "1.0"}
+  "lwt" {>= "3.0.0"}
   "tls-lwt" {>= "0.16.0"}
   "ocaml" {>= "4.08.0"}
   "opam-core" {>= "2.2.0"}
