@@ -544,13 +544,6 @@ module Args = struct
       "File containing a message to be appended to the pull request's body, \
        such as release notes."
 
-  let split =
-    value & flag &
-    info ["split"] ~docs ~doc:
-      "Split the URL and description of packages into separate files (`url` \
-       and `descr`). This can be useful on legacy repositories, but is \
-       deprecated."
-
   let no_confirmation =
     value & flag &
     info ["no-confirmation"] ~docs ~doc:
@@ -673,7 +666,7 @@ let pull_request_message ?msg meta_opams =
   in
   title, body
 
-let to_files ?(split=false) ~packages_dir meta_opams =
+let to_files ~packages_dir meta_opams =
   OpamPackage.Map.fold (fun p (m, o) acc ->
       let dir =
         packages_dir (* default value: "packages" *)
@@ -681,20 +674,6 @@ let to_files ?(split=false) ~packages_dir meta_opams =
         / OpamPackage.to_string p
       in
       let acc = (dir, None) :: acc in
-      let o, acc =
-        match split, OpamFile.OPAM.url o with
-        | true, Some u ->
-          OpamFile.OPAM.with_url_opt None o,
-          (dir / "url", Some (OpamFile.URL.write_to_string u, 0o644)) :: acc
-        | _ -> o, acc
-      in
-      let o, acc =
-        match split, OpamFile.OPAM.descr o with
-        | true, Some d ->
-          OpamFile.OPAM.with_descr_opt None o,
-          (dir / "descr", Some (OpamFile.Descr.write_to_string d, 0o644)) :: acc
-        | _ -> o, acc
-      in
       (dir / "opam",
        (Some (OpamFile.OPAM.to_string_with_preserved_format (opam m) o, 0o644)))
       :: acc)
@@ -705,7 +684,7 @@ let to_files ?(split=false) ~packages_dir meta_opams =
 let main_term root =
   let run
       args force tag version dry_run output_patch no_browser repo
-      target_branch packages_dir title msg split no_confirmation exclude
+      target_branch packages_dir title msg no_confirmation exclude
       pre_release token =
     let dirs, opams, urls, projects, names =
       List.fold_left (fun (dirs, opams, urls, projects, names) -> function
@@ -735,7 +714,7 @@ let main_term root =
     then OpamStd.Sys.exit_because `Aborted;
     let pr_title, pr_body = pull_request_message ?msg meta_opams in
     let pr_title = title +! pr_title in
-    let files = to_files ~split ~packages_dir meta_opams in
+    let files = to_files ~packages_dir meta_opams in
     let output_patch = Option.map OpamFilename.of_string output_patch in
     PublishSubmit.submit
       root
@@ -750,7 +729,7 @@ let main_term root =
   let open Args in
   Term.(const run
         $ src_args $ force $ tag $ version $ dry_run $ output_patch $ no_browser
-        $ repo $ target_branch $ packages_dir $ title $ msg_file $ split
+        $ repo $ target_branch $ packages_dir $ title $ msg_file
         $ no_confirmation $ exclude $ pre_release $ token)
 
 
