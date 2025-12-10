@@ -10,6 +10,17 @@
 
 open PublishCommon
 
+module Github =
+  Github_core.Make
+    (struct
+      let debug = try Unix.getenv "GITHUB_DEBUG" <> "0" with _ -> false
+    end)
+    (struct
+      let now = Unix.gettimeofday
+      let sleep = Lwt_unix.sleep
+    end)
+    (Cohttp_lwt_unix.Client)
+
 let reset_terminal : (unit -> unit) option ref = ref None
 let () =
   at_exit @@ fun () ->

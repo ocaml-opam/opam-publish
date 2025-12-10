@@ -21,7 +21,6 @@ depends: [
   "opam-format" {>= "2.2.0"}
   "opam-state" {>= "2.2.0"}
   "github" {>= "4.3.2"}
-  "github-unix" {>= "4.3.2"}
   "cohttp" {>= "0.99"}
   "cohttp-lwt-unix" {>= "0.99"}
 ]
