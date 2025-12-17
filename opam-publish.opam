@@ -31,3 +31,4 @@ opam-publish automates publishing packages to package repositories: it checks th
 opam file is complete using `opam lint`, verifies and adds the archive URL and its
 checksum and files a GitHub pull request for merging it.
 """
+x-maintenance-intent: ["(latest)"]
