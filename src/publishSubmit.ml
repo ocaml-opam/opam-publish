@@ -131,84 +131,24 @@ module GH = struct
       | exn -> Lwt.fail exn
     )
 
-  let rec get_user_token ~cli_token root (repo_owner, repo_name) =
-    let expected_scopes = ["\"public_repo\""; "\"workflow\""] in
-    let tok_file =
-      OpamFilename.Op.(root // (repo_owner ^ "%" ^ repo_name ^ ".token"))
-    in
-    let exists = OpamFilename.exists tok_file in
-    let exists = (* Restore token from previous versions *)
-      exists ||
+  let prompt_for_token expected_scopes =
+    OpamConsole.msg
+      "Please generate a Github token at \
+       https://github.com/settings/tokens/new to allow access.\n\
+       The %s scopes are required \
+       (\"repo\" if submitting to a private opam repository).\n\n"
+      (OpamStd.Format.pretty_list expected_scopes);
+    let rec get_pass () =
       match
-        List.filter (OpamFilename.ends_with ".token") (OpamFilename.files root)
+        OpamConsole.read "Please enter your GitHub personal access token:"
       with
-      | [f] when
-          not (String.contains
-                 (OpamFilename.(Base.to_string (basename f))) '%') ->
-        OpamFilename.move ~src:f ~dst:tok_file; true
-      | _ -> false
+      | Some p -> p
+      | None -> get_pass ()
     in
-    if exists then
-      let token = Token.of_string (OpamFilename.read tok_file) in
-      match get_user token with
-      | Ok u -> u, token
-      | Error `Unauthorized ->
-        OpamConsole.msg "\nExisting Github token is no longer valid (%s).\n"
-          (OpamFilename.prettify tok_file);
-        OpamFilename.remove tok_file;
-        get_user_token ~cli_token root (repo_owner, repo_name)
-      | Error (`Missing_scope (u, scopes)) ->
-        OpamConsole.msg "\nExisting Github token doesn't have the expected \
-                         scopes (expected %s, but got %s).\n"
-          (OpamStd.Format.pretty_list expected_scopes)
-          (if scopes = [] then "none" else OpamStd.Format.pretty_list scopes);
-        if OpamConsole.confirm ~default:false
-            "Do you want to use it anyway?" then
-          u, token
-        else (
-          OpamFilename.remove tok_file;
-          get_user_token ~cli_token root (repo_owner, repo_name))
-    else
-    let token =
-      match cli_token with
-      | Some token -> Token.of_string token
-      | None ->
-        OpamConsole.msg
-          "Please generate a Github token at \
-           https://github.com/settings/tokens/new to allow access.\n\
-           The %s scopes are required \
-           (\"repo\" if submitting to a private opam repository).\n\n"
-          (OpamStd.Format.pretty_list expected_scopes);
-        let token =
-          let rec get_pass () =
-            match
-              OpamConsole.read "Please enter your GitHub personal access token:"
-            with
-            | Some p -> p
-            | None -> get_pass ()
-          in
-          let input = no_stdin_echo get_pass in
-          Token.of_string (OpamStd.String.strip input)
-        in
-        token
-    in
-    let user, token =
-      match get_user token with
-      | Ok u -> u, token
-      | Error `Unauthorized ->
-        OpamConsole.msg "Sorry, this token does not appear to be valid.\n";
-        get_user_token ~cli_token root (repo_owner, repo_name)
-      | Error (`Missing_scope (u, scopes)) ->
-        OpamConsole.msg "Sorry, this token doesn't have the expected scopes \
-                         (expected %s, but got %s).\n"
-          (OpamStd.Format.pretty_list expected_scopes)
-          (OpamStd.Format.pretty_list scopes);
-        if OpamConsole.confirm ~default:false
-            "Do you want to use it anyway?" then
-          u, token
-        else
-          get_user_token ~cli_token root (repo_owner, repo_name)
-    in
+    let input = no_stdin_echo get_pass in
+    Token.of_string (OpamStd.String.strip input)
+
+  let save_token_file root tok_file token =
     OpamConsole.msg
       "The token will be stored in %s.\n"
       (OpamFilename.prettify tok_file);
@@ -220,10 +160,90 @@ module GH = struct
     close_out tok_oc;
     let { Unix.st_perm; _ } = Unix.stat tok_file in
     let safe_perm = 0o7770 land st_perm in
-    begin if safe_perm <> st_perm
-      then Unix.chmod tok_file safe_perm
-    end;
-    user, token
+    if safe_perm <> st_perm then
+      Unix.chmod tok_file safe_perm
+
+  let get_user_token ~cli_token root (repo_owner, repo_name) =
+    let expected_scopes = ["\"public_repo\""; "\"workflow\""] in
+    let tok_file =
+      OpamFilename.Op.(root // (repo_owner ^ "%" ^ repo_name ^ ".token"))
+    in
+    let max_attempts = 3 in
+    let rec loop ~attempts_left ~cli_token =
+      if attempts_left <= 0 then
+        Format.ksprintf failwith
+          "Could not obtain a valid GitHub token after %d attempts."
+          max_attempts;
+      let exists = OpamFilename.exists tok_file in
+      let exists = (* Restore token from previous versions *)
+        exists ||
+        match
+          List.filter (OpamFilename.ends_with ".token") (OpamFilename.files root)
+        with
+        | [f] when
+            not (String.contains
+                   (OpamFilename.(Base.to_string (basename f))) '%') ->
+          OpamFilename.move ~src:f ~dst:tok_file; true
+        | _ -> false
+      in
+      if exists then
+        let token = Token.of_string (OpamFilename.read tok_file) in
+        let user =
+          match get_user token with
+          | Ok u -> Ok u
+          | Error `Unauthorized ->
+            OpamConsole.msg "\nExisting Github token is no longer valid (%s).\n"
+              (OpamFilename.prettify tok_file);
+            OpamFilename.remove tok_file;
+            Error ()
+            (* get_user_token ~cli_token root (repo_owner, repo_name) *)
+          | Error (`Missing_scope (u, scopes)) ->
+            OpamConsole.msg "\nExisting Github token doesn't have the expected \
+                             scopes (expected %s, but got %s).\n"
+              (OpamStd.Format.pretty_list expected_scopes)
+              (if scopes = [] then "none" else OpamStd.Format.pretty_list scopes);
+            if OpamConsole.confirm ~default:false "Do you want to use it anyway?"
+            then Ok u
+            else (
+              OpamFilename.remove tok_file;
+              Error () )
+        in
+        match user with
+        | Ok user -> user, token
+        | Error () -> loop ~attempts_left:(attempts_left - 1) ~cli_token
+      else
+      let token =
+        match cli_token with
+        | Some token -> Token.of_string token
+        | None -> prompt_for_token expected_scopes
+      in
+      let user =
+        match get_user token with
+        | Ok u -> Ok u
+        | Error `Unauthorized ->
+          OpamConsole.msg "Sorry, this token does not appear to be valid.\n";
+          Error ()
+        | Error (`Missing_scope (u, scopes)) ->
+          OpamConsole.msg "Sorry, this token doesn't have the expected scopes \
+                           (expected %s, but got %s).\n"
+            (OpamStd.Format.pretty_list expected_scopes)
+            (OpamStd.Format.pretty_list scopes);
+          if OpamConsole.confirm ~default:false "Do you want to use it anyway?"
+          then Ok u
+          else Error ()
+      in
+      match user with
+      | Ok user ->
+        save_token_file root tok_file token;
+        user, token
+      | Error () ->
+        (* If the user gave a bad cli token we cannot prompt/recurse *)
+        if Option.is_some cli_token then
+          failwith "Aborting due to invalid command-line token."
+        else
+          loop ~attempts_left:(attempts_left - 1) ~cli_token:None
+    in
+    loop ~attempts_left:max_attempts ~cli_token
 
   let fork token repo =
     let check uri =
