@@ -803,8 +803,12 @@ let () =
   with
   | OpamStd.Sys.Exit i -> exit i
   | Failure e ->
+    let bt = Printexc.get_backtrace () in
     OpamConsole.error "%s" e;
+    OpamConsole.msg "%s" bt;
     exit (List.assoc `Internal_error OpamStd.Sys.exit_codes)
   | e ->
+    let bt = Printexc.get_backtrace () in
     OpamConsole.error "Uncaught exception: %s" (Printexc.to_string e);
+    OpamConsole.msg "%s" bt;
     exit (List.assoc `Internal_error OpamStd.Sys.exit_codes)
