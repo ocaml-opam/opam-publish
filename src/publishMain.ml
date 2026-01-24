@@ -563,6 +563,13 @@ module Args = struct
     let doc = "Personal GitHub access token for authentication" in
     let env = Cmd.Env.info ~docs ~doc "OPAM_PUBLISH_GH_TOKEN" in
     value & opt (some string) None & info ["token"] ~env ~docs ~doc
+
+  let fork_name =
+    value & opt (some string) None &
+    info ["fork-name"] ~docs ~docv:"NAME" ~doc:
+      "The name of your fork of the target repository. \
+       Defaults to the repository name from the $(b,--repo) option. \
+       Use this if your fork has a different name (e.g. 'opam-repository-1')."
 end
 
 let identical f = function
@@ -683,9 +690,9 @@ let to_files ~packages_dir meta_opams =
 
 let main_term root =
   let run
-      args force tag version dry_run output_patch no_browser repo
+      args force tag version dry_run output_patch no_browser (repo_owner, repo_name)
       target_branch packages_dir title msg no_confirmation exclude
-      pre_release token =
+      pre_release token fork_name =
     let dirs, opams, urls, projects, names =
       List.fold_left (fun (dirs, opams, urls, projects, names) -> function
           | `Dir d -> (dirs @ [d], opams, urls, projects, names)
@@ -716,6 +723,11 @@ let main_term root =
     let pr_title = title +! pr_title in
     let files = to_files ~packages_dir meta_opams in
     let output_patch = Option.map OpamFilename.of_string output_patch in
+    let repo = {
+      PublishSubmit.repo_owner;
+      repo_name;
+      fork_name = Option.value fork_name ~default:repo_name;
+    } in
     PublishSubmit.submit
       root
       ~token
@@ -730,7 +742,7 @@ let main_term root =
   Term.(const run
         $ src_args $ force $ tag $ version $ dry_run $ output_patch $ no_browser
         $ repo $ target_branch $ packages_dir $ title $ msg_file
-        $ no_confirmation $ exclude $ pre_release $ token)
+        $ no_confirmation $ exclude $ pre_release $ token $ fork_name)
 
 
 let main_info =

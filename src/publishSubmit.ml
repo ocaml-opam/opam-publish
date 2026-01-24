@@ -32,10 +32,14 @@ let (/) a b = String.concat "/" [a;b]
 
 let github_root = "https://github.com/"
 
-type github_repo = string * string (* owner, name *)
+type github_repo = {
+  repo_owner: string; (* e.g. "ocaml" *)
+  repo_name: string;  (* e.g. "opam-repository" *)
+  fork_name: string;  (* e.g. "opam-repository" or "opam-repository-1" *)
+}
 
-let repo_dir root (repo_owner, repo_name) =
-  OpamFilename.Op.(root / "repos" / (repo_owner ^ "%" ^ repo_name))
+let repo_dir root repo =
+  OpamFilename.Op.(root / "repos" / (repo.repo_owner ^ "%" ^ repo.repo_name))
 
 let print_package_list sep packages =
   let packages =
@@ -131,10 +135,10 @@ module GH = struct
       | exn -> Lwt.fail exn
     )
 
-  let rec get_user_token ~cli_token root (repo_owner, repo_name) =
+  let rec get_user_token ~cli_token root repo =
     let expected_scopes = ["\"public_repo\""; "\"workflow\""] in
     let tok_file =
-      OpamFilename.Op.(root // (repo_owner ^ "%" ^ repo_name ^ ".token"))
+      OpamFilename.Op.(root // (repo.repo_owner ^ "%" ^ repo.repo_name ^ ".token"))
     in
     let exists = OpamFilename.exists tok_file in
     let exists = (* Restore token from previous versions *)
@@ -156,7 +160,7 @@ module GH = struct
         OpamConsole.msg "\nExisting Github token is no longer valid (%s).\n"
           (OpamFilename.prettify tok_file);
         OpamFilename.remove tok_file;
-        get_user_token ~cli_token root (repo_owner, repo_name)
+        get_user_token ~cli_token root repo
       | Error (`Missing_scope (u, scopes)) ->
         OpamConsole.msg "\nExisting Github token doesn't have the expected \
                          scopes (expected %s, but got %s).\n"
@@ -167,7 +171,7 @@ module GH = struct
           u, token
         else (
           OpamFilename.remove tok_file;
-          get_user_token ~cli_token root (repo_owner, repo_name))
+          get_user_token ~cli_token root repo)
     else
     let token =
       match cli_token with
@@ -197,7 +201,7 @@ module GH = struct
       | Ok u -> u, token
       | Error `Unauthorized ->
         OpamConsole.msg "Sorry, this token does not appear to be valid.\n";
-        get_user_token ~cli_token root (repo_owner, repo_name)
+        get_user_token ~cli_token root repo
       | Error (`Missing_scope (u, scopes)) ->
         OpamConsole.msg "Sorry, this token doesn't have the expected scopes \
                          (expected %s, but got %s).\n"
@@ -207,7 +211,7 @@ module GH = struct
             "Do you want to use it anyway?" then
           u, token
         else
-          get_user_token ~cli_token root (repo_owner, repo_name)
+          get_user_token ~cli_token root repo
     in
     OpamConsole.msg
       "The token will be stored in %s.\n"
@@ -249,8 +253,13 @@ module GH = struct
         embed (Lwt_unix.sleep 1.5) >>= until ~n:(n+1) f x
     ) in
     Lwt_main.run Monad.(run (
-      Repo.fork ~token ~user:(fst repo) ~repo:(snd repo) ()
-      >>~ fun { Github_t.repository_url = uri; _ } ->
+      Repo.fork ~token ~user:repo.repo_owner ~repo:repo.repo_name ()
+      >>~ fun { Github_t.repository_url = uri; repository_name = created_name; _ } ->
+      if created_name <> repo.fork_name then
+        failwith
+          (Printf.sprintf
+             "GitHub created a fork named '%s', which differs from '%s'. \
+              Please re-run with --fork-name %s" created_name repo.fork_name created_name);
       until check (Uri.of_string uri) ()
     ))
 
@@ -271,7 +280,7 @@ module GH = struct
     } in
     let open Github.Monad in
     let existing () =
-      let pulls = Pull.for_repo ~token ~user:(fst repo) ~repo:(snd repo) () in
+      let pulls = Pull.for_repo ~token ~user:repo.repo_owner ~repo:repo.repo_name () in
       Stream.find Github_t.(fun p ->
         (match p.pull_head.branch_user with
          | None -> false | Some u -> u.user_login = user) &&
@@ -283,12 +292,12 @@ module GH = struct
       Response.value @@ Lwt_main.run @@ Monad.run @@
       (existing () >>= function
         | None ->
-          Pull.create ~token ~user:(fst repo) ~repo:(snd repo) ~pull ()
+          Pull.create ~token ~user:repo.repo_owner ~repo:repo.repo_name ~pull ()
         | Some (p,_) ->
           let num = p.Github_t.pull_number in
           OpamConsole.msg "Updating existing pull-request #%d\n" num;
           Pull.update
-            ~token ~user:(fst repo) ~repo:(snd repo) ~update_pull ~num
+            ~token ~user:repo.repo_owner ~repo:repo.repo_name ~update_pull ~num
             ())
     in
     pr.Github_t.pull_html_url
@@ -315,7 +324,7 @@ let configure_user ~dir user =
     The format is: https://<token>@github.com/<user>/<repo_name> *)
 let make_authenticated_https_url repo ~user ~token =
   let token = Github.Token.to_string token in
-  Format.sprintf "https://%s@github.com/%s/%s" token user.GH.login (snd repo)
+  Format.sprintf "https://%s@github.com/%s/%s" token user.GH.login repo.fork_name
 
 let init_mirror root repo user token =
   let dir = repo_dir root repo in
@@ -326,7 +335,7 @@ let init_mirror root repo user token =
     "Cloning the package repository, this may take a while...\n";
   git_command ~verbose:true
     ["clone";
-     github_root^(fst repo)/(snd repo)^".git";
+     github_root^repo.repo_owner/repo.repo_name^".git";
      OpamFilename.Dir.to_string dir];
   GH.fork token repo;
   configure_user ~dir user;
@@ -388,7 +397,7 @@ let add_files_and_pr
       let _ : int = Sys.command cmd in
       OpamConsole.msg
         "Patch file to be applied on %s/%s was written to %S\n"
-        (fst repo) (snd repo) (OpamFilename.to_string out)
+        repo.repo_owner repo.repo_name (OpamFilename.to_string out)
   end;
   if output_patch <> None || dry_run then OpamStd.Sys.exit_because `Success;
   if not (OpamConsole.confirm ~require_unsafe_yes:true
