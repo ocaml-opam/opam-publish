@@ -245,7 +245,12 @@ module GH = struct
     in
     loop ~attempts_left:max_attempts ~cli_token
 
-  let fork token repo =
+  (** Forks the repository (idempotent - returns existing fork if one exists).
+      Returns [fork_name] i.e. the name of the fork of the opam-repository that
+      the user is targeting, as it exists on their GitHub account. It may differ
+      from the repo name if the user renamed it or if GitHub automatically renamed
+      it to avoid conflicts. A canonical example is ["opam-repository-1"]. *)
+  let fork token (repo_owner, repo_name) : string =
     let check uri =
       let not_found = API.code_handler ~expected_code:`Not_found (fun _ ->
         OpamConsole.log "PUBLISH" "Check for fork failed: not found";
@@ -269,9 +274,10 @@ module GH = struct
         embed (Lwt_unix.sleep 1.5) >>= until ~n:(n+1) f x
     ) in
     Lwt_main.run Monad.(run (
-      Repo.fork ~token ~user:(fst repo) ~repo:(snd repo) ()
-      >>~ fun { Github_t.repository_url = uri; _ } ->
-      until check (Uri.of_string uri) ()
+      Repo.fork ~token ~user:repo_owner ~repo:repo_name ()
+      >>~ fun { Github_t.repository_url = uri; repository_name = fork_name; _ } ->
+      until check (Uri.of_string uri) () >>= fun () ->
+      return fork_name
     ))
 
   let pull_request title user token repo ?text branch target_branch =
@@ -332,12 +338,12 @@ let configure_user ~dir user =
     ()
 
 (** Constructs a repository url for https push authentication.
-    The format is: https://<token>@github.com/<user>/<repo_name> *)
-let make_authenticated_https_url repo ~user ~token =
+    The format is: https://<token>@github.com/<user>/<fork_name> *)
+let make_authenticated_https_url ~user ~fork_name ~token =
   let token = Github.Token.to_string token in
-  Format.sprintf "https://%s@github.com/%s/%s" token user.GH.login (snd repo)
+  Format.sprintf "https://%s@github.com/%s/%s" token user.GH.login fork_name
 
-let init_mirror root repo user token =
+let init_mirror root repo user ~fork_name token =
   let dir = repo_dir root repo in
   if OpamFilename.exists_dir dir then
     OpamFilename.rmdir dir;
@@ -348,12 +354,11 @@ let init_mirror root repo user token =
     ["clone";
      github_root^(fst repo)/(snd repo)^".git";
      OpamFilename.Dir.to_string dir];
-  GH.fork token repo;
   configure_user ~dir user;
-  let remote = make_authenticated_https_url repo ~user ~token in
+  let remote = make_authenticated_https_url ~user ~fork_name ~token in
   git_command ~dir ["remote"; "add"; "user"; remote]
 
-let update_mirror root repo ~user ~token branch =
+let update_mirror root repo ~user ~fork_name ~token branch =
   let dir = repo_dir root repo in
   OpamConsole.msg "Fetching the package repository, this may take a while...\n";
   let aux () =
@@ -362,12 +367,12 @@ let update_mirror root repo ~user ~token branch =
   in
   try
     (* Updates user remote to make sure we use https token authentication. *)
-    let https_url = make_authenticated_https_url repo ~user ~token in
+    let https_url = make_authenticated_https_url ~user ~fork_name ~token in
     git_command ~dir ["remote"; "set-url"; "user"; https_url];
     aux ()
   with OpamSystem.Process_error _ ->
     OpamConsole.msg "Command failed. Trying one more time on a clean slate...\n";
-    init_mirror root repo user token;
+    init_mirror root repo user ~fork_name token;
     aux ()
 
 let add_files_and_pr
@@ -433,17 +438,12 @@ let submit
     repo target_branch title msg packages files =
   (* Prepare the repo *)
   let mirror_dir = repo_dir root repo in
-  let user, token =
-    if not OpamFilename.(exists_dir Op.(mirror_dir / ".git" )) then
-      let user, token = GH.get_user_token ~cli_token:token root repo in
-      init_mirror root repo user token;
-      user, token
-    else
-    let user, token = GH.get_user_token ~cli_token:token root repo in
-    user, token
-  in
+  let user, token = GH.get_user_token ~cli_token:token root repo in
+  let fork_name = GH.fork token repo in
+  if not OpamFilename.(exists_dir Op.(mirror_dir / ".git" )) then
+    init_mirror root repo user ~fork_name token;
   (* pull-request processing *)
-  update_mirror root repo ~user ~token target_branch;
+  update_mirror root repo ~user ~fork_name ~token target_branch;
   let branch = user_branch packages in
   add_files_and_pr root ~dry_run ~output_patch ~no_browser
     repo user token title msg branch target_branch files
