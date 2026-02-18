@@ -521,10 +521,11 @@ module Args = struct
        $(i,--packages-directory=released/packages)."
 
   let target_branch =
-    value & opt string "master" &
+    value & opt (some string) None &
     info ["target-branch";"b"] ~docs ~docv:"BRANCH" ~doc:
       "The branch to submit the pull-requests to on the target package \
-       repository"
+       repository. Defaults to the default branch of the target \
+       repository."
 
   let packages_dir =
     value & opt string "packages" &

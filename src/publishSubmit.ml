@@ -280,6 +280,18 @@ module GH = struct
       return fork_name
     ))
 
+  (** Returns the default branch of the given repository. *)
+  let default_branch token (repo_owner, repo_name) : string =
+    Lwt_main.run Monad.(run (
+      Repo.info ~token ~user:repo_owner ~repo:repo_name ()
+      >>~ fun { Github_t.repository_default_branch; _ } ->
+      (* The ATD binding models this field as an option, however this is overly
+         conservative since this field is specified as being required in the API
+         Response Schema. This means that the "master" fallback below should
+         never be reached in practice (but won't hurt). *)
+      return (Option.value repository_default_branch ~default:"master")
+    ))
+
   let pull_request title user token repo ?text branch target_branch =
     let pull = {
       Github_t.
@@ -440,6 +452,11 @@ let submit
   let mirror_dir = repo_dir root repo in
   let user, token = GH.get_user_token ~cli_token:token root repo in
   let fork_name = GH.fork token repo in
+  let target_branch =
+    match target_branch with
+    | Some branch -> branch
+    | None -> GH.default_branch token repo
+  in
   if not OpamFilename.(exists_dir Op.(mirror_dir / ".git" )) then
     init_mirror root repo user ~fork_name token;
   (* pull-request processing *)
