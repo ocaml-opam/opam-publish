@@ -1,3 +1,12 @@
+3.0.0:
+* No longer allow option names to be specified by a prefix if the prefix is unambiguous [#202 @kit-ty-kate]
+* Query upstream repo for default branch instead of defaulting to `master` [#201 @mbarbin]
+* Query fork name from GitHub to support users whose fork of opam-repository isn't named `opam-repository` [#199 @mbarbin]
+* Fix an infinit loop if the user repeatedly provided an invalid token [#186 @filipeom]
+* Remove the deprecated `--split` option [#194 @kit-ty-kate]
+* Remove the `github-unix` dependency [#196 @kit-ty-kate]
+* Upgrade to cmdliner 2.0 [#202 @kit-ty-kate]
+
 2.7.1:
 * Advertise the need, and check, for the `workflow` scope for github personal access tokens [#184 @kit-ty-kate - fix #180]
 * Enforce the git remote used to push branches to users' fork to be used instead of the SSH method, for users migrating from versions of opam-publish prior to 2.7.0 [#179 @filipeom - fix #178]
