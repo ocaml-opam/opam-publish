@@ -785,6 +785,10 @@ let main_info =
           with the sources."
     ]
 
+let no_legacy_prefixes = function
+  | "CMDLINER_LEGACY_PREFIXES" -> Some "0"
+  | name -> Sys.getenv_opt name
+
 let () =
   OpamSystem.init ();
   let opam_root = OpamStateConfig.opamroot () in
@@ -798,7 +802,7 @@ let () =
   let publish_root = OpamFilename.Op.(opam_root / "plugins" / "opam-publish") in
   let main_command = Cmd.v main_info (main_term publish_root) in
   try
-    match Cmd.eval_value ~catch:false main_command with
+    match Cmd.eval_value ~env:no_legacy_prefixes ~catch:false main_command with
     | Ok (`Ok () | `Version | `Help) -> OpamStd.Sys.exit_because `Success
     | Error _ -> OpamStd.Sys.exit_because `Bad_arguments
   with
