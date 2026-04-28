@@ -413,13 +413,15 @@ let add_files_and_pr
   in
   begin match output_patch with
     | None ->
-      OpamFilename.in_dir mirror @@ fun () ->
-      let _ : int = Sys.command "git show HEAD" in
+      let _ : int =
+        Sys.command @@ Printf.sprintf "git -C %s show HEAD"
+          (Filename.quote (OpamFilename.Dir.to_string mirror))
+      in
       ()
     | Some out ->
-      OpamFilename.in_dir mirror @@ fun () ->
       let cmd =
-        Printf.sprintf "git format-patch HEAD^ --stdout > %S"
+        Printf.sprintf "git -C %s format-patch HEAD^ --stdout > %S"
+          (Filename.quote (OpamFilename.Dir.to_string mirror))
           (OpamFilename.to_string out)
       in
       let _ : int = Sys.command cmd in
