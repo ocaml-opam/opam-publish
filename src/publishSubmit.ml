@@ -168,80 +168,74 @@ module GH = struct
     let tok_file =
       OpamFilename.Op.(root // (repo_owner ^ "%" ^ repo_name ^ ".token"))
     in
+
+    let get_user_from_token token =
+      match get_user token with
+      | Ok u -> Ok u
+      | Error `Unauthorized ->
+        OpamConsole.msg "\nExisting Github token is no longer valid (%s).\n"
+          (OpamFilename.prettify tok_file);
+        Error ()
+      | Error (`Missing_scope (u, scopes)) ->
+        OpamConsole.msg "\nExisting Github token doesn't have the expected \
+                         scopes (expected %s, but got %s).\n"
+          (OpamStd.Format.pretty_list expected_scopes)
+          (if scopes = [] then "none" else OpamStd.Format.pretty_list scopes);
+        if OpamConsole.confirm ~default:false "Do you want to use it anyway?"
+        then Ok u
+        else Error ()
+    in
+
     let max_attempts = 3 in
     let rec loop ~attempts_left ~cli_token =
       if attempts_left <= 0 then
         Format.ksprintf failwith
           "Could not obtain a valid GitHub token after %d attempts."
           max_attempts;
-      let exists = OpamFilename.exists tok_file in
-      let exists = (* Restore token from previous versions *)
-        exists ||
-        match
-          List.filter (OpamFilename.ends_with ".token") (OpamFilename.files root)
-        with
-        | [f] when
-            not (String.contains
-                   (OpamFilename.(Base.to_string (basename f))) '%') ->
-          OpamFilename.move ~src:f ~dst:tok_file; true
-        | _ -> false
-      in
-      if exists then
-        let token = Token.of_string (OpamFilename.read tok_file) in
-        let user =
-          match get_user token with
-          | Ok u -> Ok u
-          | Error `Unauthorized ->
-            OpamConsole.msg "\nExisting Github token is no longer valid (%s).\n"
-              (OpamFilename.prettify tok_file);
-            OpamFilename.remove tok_file;
-            Error ()
-            (* get_user_token ~cli_token root (repo_owner, repo_name) *)
-          | Error (`Missing_scope (u, scopes)) ->
-            OpamConsole.msg "\nExisting Github token doesn't have the expected \
-                             scopes (expected %s, but got %s).\n"
-              (OpamStd.Format.pretty_list expected_scopes)
-              (if scopes = [] then "none" else OpamStd.Format.pretty_list scopes);
-            if OpamConsole.confirm ~default:false "Do you want to use it anyway?"
-            then Ok u
-            else (
-              OpamFilename.remove tok_file;
-              Error () )
-        in
+      match cli_token with
+      | Some token -> begin
+        let token = Token.of_string token in
+        let user = get_user_from_token token in
         match user with
-        | Ok user -> user, token
-        | Error () -> loop ~attempts_left:(attempts_left - 1) ~cli_token
-      else
-      let token =
-        match cli_token with
-        | Some token -> Token.of_string token
-        | None -> prompt_for_token expected_scopes
-      in
-      let user =
-        match get_user token with
-        | Ok u -> Ok u
-        | Error `Unauthorized ->
-          OpamConsole.msg "Sorry, this token does not appear to be valid.\n";
-          Error ()
-        | Error (`Missing_scope (u, scopes)) ->
-          OpamConsole.msg "Sorry, this token doesn't have the expected scopes \
-                           (expected %s, but got %s).\n"
-            (OpamStd.Format.pretty_list expected_scopes)
-            (OpamStd.Format.pretty_list scopes);
-          if OpamConsole.confirm ~default:false "Do you want to use it anyway?"
-          then Ok u
-          else Error ()
-      in
-      match user with
-      | Ok user ->
-        save_token_file root tok_file token;
-        user, token
-      | Error () ->
-        (* If the user gave a bad cli token we cannot prompt/recurse *)
-        if Option.is_some cli_token then
-          failwith "Aborting due to invalid command-line token."
-        else
+        | Ok user ->
+          save_token_file root tok_file token;
+          user, token
+        | Error () ->
           loop ~attempts_left:(attempts_left - 1) ~cli_token:None
+      end
+      | None ->
+        let exists =
+          OpamFilename.exists tok_file ||
+          match
+            List.filter (OpamFilename.ends_with ".token") (OpamFilename.files root)
+          with
+          | [f] when
+              not (String.contains
+                     (OpamFilename.(Base.to_string (basename f))) '%') ->
+            OpamFilename.move ~src:f ~dst:tok_file; true
+          | _ -> false
+        in
+        if exists then (* Restore token from previous versions *)
+          let token = Token.of_string (OpamFilename.read tok_file) in
+          let user = get_user_from_token token in
+          match user with
+          | Ok user -> user, token
+          | Error () ->
+            OpamFilename.remove tok_file;
+            loop ~attempts_left:(attempts_left - 1) ~cli_token:None
+        else
+          let token = prompt_for_token expected_scopes in
+          let user = get_user_from_token token in
+          match user with
+          | Ok user ->
+            save_token_file root tok_file token;
+            user, token
+          | Error () ->
+            (* If the user gave a bad cli token we cannot prompt/recurse *)
+            if Option.is_some cli_token then
+              failwith "Aborting due to invalid command-line token."
+            else
+              loop ~attempts_left:(attempts_left - 1) ~cli_token:None
     in
     loop ~attempts_left:max_attempts ~cli_token
 
