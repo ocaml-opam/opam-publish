@@ -420,9 +420,9 @@ let add_files_and_pr
       ()
     | Some out ->
       let cmd =
-        Printf.sprintf "git -C %s format-patch HEAD^ --stdout > %S"
+        Printf.sprintf "git -C %s format-patch HEAD^ --stdout > %s"
           (Filename.quote (OpamFilename.Dir.to_string mirror))
-          (OpamFilename.to_string out)
+          (Filename.quote (OpamFilename.to_string out))
       in
       let _ : int = Sys.command cmd in
       OpamConsole.msg
