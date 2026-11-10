@@ -111,7 +111,7 @@ module GH = struct
           User.current_info ~token () >>~ fun u ->
           let login = u.Github_t.user_info_login in
           let name = u.Github_t.user_info_name +! login in
-          let email = u.Github_t.user_info_email +! login ^ "@opam-publish" in
+          let email = u.Github_t.user_info_email +! (login ^ "@opam-publish") in
           return { name; email; login }
         ) >>= fun r ->
         get_gh_scopes token >>= function
