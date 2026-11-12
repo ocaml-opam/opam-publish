@@ -24,12 +24,6 @@ type meta = {
   version: OpamPackage.Version.t option;
 }
 
-let name = function
-  | { name = Some n; _ } -> n
-  | _ -> invalid_arg "name"
-let version = function
-  | { version = Some v; _ } -> v
-  | _ -> invalid_arg "version"
 let package = function
   | { name = Some n; version = Some v; _ } -> OpamPackage.create n v
   | _ -> invalid_arg "package"
