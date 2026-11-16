@@ -66,8 +66,6 @@ module GH = struct
     login : string;
   }
 
-  let token_note hostname = "opam-publish access token ("^hostname^")"
-
   let no_stdin_echo f =
     let reset_terminal : (unit -> unit) option ref = ref None in
     let () =
