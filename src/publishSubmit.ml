@@ -391,26 +391,20 @@ let add_files_and_pr
     root ~dry_run ~output_patch ~no_browser repo user token title message
     branch target_branch files =
   let mirror = repo_dir root repo in
-  let () =
-    List.iter (fun (rel_path, contents) ->
-        match contents with
-        | None ->
-          if Sys.file_exists
-              (Filename.concat (OpamFilename.Dir.to_string mirror) rel_path)
-          then git_command ~dir:mirror ["rm"; "-r"; rel_path]
-        | Some (contents, perms) ->
-          let file = OpamFilename.Op.(mirror // rel_path) in
-          OpamFilename.mkdir (OpamFilename.dirname file);
-          OpamFilename.write file contents;
-          OpamFilename.chmod file perms;
-          git_command ~dir:mirror ["add"; rel_path])
-      files;
-    git_command ~dir:mirror
-      ["commit"; "-m"; title];
-    if not dry_run then
-      git_command ~dir:mirror
-        ["push"; "user"; "+HEAD:"^branch]
-  in
+  List.iter (fun (rel_path, contents) ->
+      match contents with
+      | None ->
+        if Sys.file_exists
+            (Filename.concat (OpamFilename.Dir.to_string mirror) rel_path)
+        then git_command ~dir:mirror ["rm"; "-r"; rel_path]
+      | Some (contents, perms) ->
+        let file = OpamFilename.Op.(mirror // rel_path) in
+        OpamFilename.mkdir (OpamFilename.dirname file);
+        OpamFilename.write file contents;
+        OpamFilename.chmod file perms;
+        git_command ~dir:mirror ["add"; rel_path])
+    files;
+  git_command ~dir:mirror ["commit"; "-m"; title];
   begin match output_patch with
     | None ->
       let _ : int =
@@ -433,6 +427,7 @@ let add_files_and_pr
   if not (OpamConsole.confirm ~require_unsafe_yes:true
             "\nFile a pull-request for this patch ?") then
     OpamStd.Sys.exit_because `Aborted;
+  git_command ~dir:mirror ["push"; "user"; "+HEAD:"^branch];
   let url =
     GH.pull_request title user.GH.login token repo ~text:message branch target_branch
   in
